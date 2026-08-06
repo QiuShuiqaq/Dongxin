@@ -1,0 +1,41 @@
+[
+  {
+    "id": "mock-local",
+    "name": "本地 Mock 规则模型",
+    "type": "MOCK",
+    "enabled": true,
+    "model": "deterministic-intent-v0",
+    "baseUrl": null,
+    "apiKeyEnv": null,
+    "timeoutMs": 3000,
+    "inputPricePerMTokens": 0,
+    "outputPricePerMTokens": 0,
+    "notes": "不调用外部 API，用于本地端到端验证。"
+  },
+  {
+    "id": "volcengine-doubao",
+    "name": "火山方舟 / 豆包",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": true,
+    "model": "请填写采购账号可用模型ID",
+    "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+    "apiKeyEnv": "ARK_API_KEY",
+    "timeoutMs": 8000,
+    "inputPricePerMTokens": null,
+    "outputPricePerMTokens": null,
+    "notes": "主测供应商。模型 ID 和价格以企业采购控制台为准。"
+  },
+  {
+    "id": "aliyun-qwen",
+    "name": "阿里云百炼 / 通义千问",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": true,
+    "model": "qwen-plus",
+    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "apiKeyEnv": "DASHSCOPE_API_KEY",
+    "timeoutMs": 8000,
+    "inputPricePerMTokens": null,
+    "outputPricePerMTokens": null,
+    "notes": "对照供应商。"
+  }
+]

@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.cache/
+.playwright-cli/
+.env
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+apps/*/.env
+data/runtime-*.json
+data/devices.json
+data/device-events.json
+data/device-commands.json
+data/knowledge-documents.json
+data/proactive-settings.json
+data/system-logs.json

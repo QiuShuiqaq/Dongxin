@@ -1,0 +1,82 @@
+[
+  {
+    "id": "case-cold-weak",
+    "category": "取暖类",
+    "inputText": "有点冷，暖和一点",
+    "expectedIntent": "HEAT_WEAK_ON",
+    "riskLevel": "LOW",
+    "notes": "模糊取暖意图"
+  },
+  {
+    "id": "case-cold-strong",
+    "category": "取暖类",
+    "inputText": "太冷了，开强一点",
+    "expectedIntent": "HEAT_STRONG_ON",
+    "riskLevel": "MEDIUM",
+    "notes": "强暖需要受规则引擎约束"
+  },
+  {
+    "id": "case-air",
+    "category": "通风换气类",
+    "inputText": "浴室空气不好，有味道",
+    "expectedIntent": "VENTILATION_ON",
+    "riskLevel": "LOW",
+    "notes": "可后续扩展为换气加净化组合动作"
+  },
+  {
+    "id": "case-light",
+    "category": "照明类",
+    "inputText": "开灯",
+    "expectedIntent": "LIGHT_ON",
+    "riskLevel": "LOW",
+    "notes": "明确控制指令"
+  },
+  {
+    "id": "case-night-light",
+    "category": "照明类",
+    "inputText": "灯光柔和一点，打开夜灯",
+    "expectedIntent": "NIGHT_LIGHT_ON",
+    "riskLevel": "LOW",
+    "notes": "夜灯"
+  },
+  {
+    "id": "case-dry",
+    "category": "模式类",
+    "inputText": "洗完澡了，干燥一下",
+    "expectedIntent": "DRY_ON",
+    "riskLevel": "LOW",
+    "notes": "干燥模式"
+  },
+  {
+    "id": "case-defog",
+    "category": "模式类",
+    "inputText": "镜子看不清了",
+    "expectedIntent": "DEFOG_ON",
+    "riskLevel": "LOW",
+    "notes": "除雾模式"
+  },
+  {
+    "id": "case-standby",
+    "category": "关机类",
+    "inputText": "全部关掉",
+    "expectedIntent": "STANDBY",
+    "riskLevel": "LOW",
+    "notes": "待机"
+  },
+  {
+    "id": "case-temp",
+    "category": "温度类",
+    "inputText": "温度调到 42 度",
+    "expectedIntent": "SET_TEMP",
+    "riskLevel": "LOW",
+    "notes": "槽位 temperature=42"
+  },
+  {
+    "id": "case-chat",
+    "category": "闲聊类",
+    "inputText": "给我讲个笑话",
+    "expectedIntent": null,
+    "riskLevel": "LOW",
+    "notes": "不应产生设备控制动作"
+  }
+]

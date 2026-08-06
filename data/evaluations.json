@@ -1,0 +1,269 @@
+[
+  {
+    "id": "e31f83ba-84ea-494f-8f84-e8913bfc6c11",
+    "promptId": "bath-heater-intent-v1",
+    "providerIds": [
+      "mock-local"
+    ],
+    "startedAt": "2026-07-31T04:33:11.757Z",
+    "completedAt": "2026-07-31T04:33:11.757Z",
+    "summary": {
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "averageLatencyMs": 0
+    },
+    "items": [
+      {
+        "testCaseId": "case-cold-weak",
+        "providerId": "mock-local",
+        "inputText": "有点冷，暖和一点",
+        "expectedIntent": "HEAT_WEAK_ON",
+        "aiResult": {
+          "resultType": "DEVICE_CONTROL",
+          "intent": "HEAT_WEAK_ON",
+          "confidence": 0.88,
+          "slots": {},
+          "requiresConfirm": false,
+          "speak": "已为您打开弱暖"
+        },
+        "safetyResult": {
+          "decision": "APPROVED",
+          "commands": [
+            "HEAT_WEAK_ON"
+          ],
+          "reason": "通过安全规则",
+          "speak": "已为您打开弱暖"
+        },
+        "isMatch": true,
+        "latencyMs": 1,
+        "error": null
+      },
+      {
+        "testCaseId": "case-cold-strong",
+        "providerId": "mock-local",
+        "inputText": "太冷了，开强一点",
+        "expectedIntent": "HEAT_STRONG_ON",
+        "aiResult": {
+          "resultType": "DEVICE_CONTROL",
+          "intent": "HEAT_STRONG_ON",
+          "confidence": 0.9,
+          "slots": {},
+          "requiresConfirm": false,
+          "speak": "已为您打开强暖"
+        },
+        "safetyResult": {
+          "decision": "APPROVED",
+          "commands": [
+            "HEAT_STRONG_ON"
+          ],
+          "reason": "通过安全规则",
+          "speak": "已为您打开强暖"
+        },
+        "isMatch": true,
+        "latencyMs": 0,
+        "error": null
+      },
+      {
+        "testCaseId": "case-air",
+        "providerId": "mock-local",
+        "inputText": "浴室空气不好，有味道",
+        "expectedIntent": "VENTILATION_ON",
+        "aiResult": {
+          "resultType": "DEVICE_CONTROL",
+          "intent": "VENTILATION_ON",
+          "confidence": 0.91,
+          "slots": {},
+          "requiresConfirm": false,
+          "speak": "已为您打开换气"
+        },
+        "safetyResult": {
+          "decision": "APPROVED",
+          "commands": [
+            "VENTILATION_ON"
+          ],
+          "reason": "通过安全规则",
+          "speak": "已为您打开换气"
+        },
+        "isMatch": true,
+        "latencyMs": 0,
+        "error": null
+      },
+      {
+        "testCaseId": "case-light",
+        "providerId": "mock-local",
+        "inputText": "开灯",
+        "expectedIntent": "LIGHT_ON",
+        "aiResult": {
+          "resultType": "DEVICE_CONTROL",
+          "intent": "LIGHT_ON",
+          "confidence": 0.98,
+          "slots": {},
+          "requiresConfirm": false,
+          "speak": "已为您打开照明"
+        },
+        "safetyResult": {
+          "decision": "APPROVED",
+          "commands": [
+            "LIGHT_ON"
+          ],
+          "reason": "通过安全规则",
+          "speak": "已为您打开照明"
+        },
+        "isMatch": true,
+        "latencyMs": 0,
+        "error": null
+      },
+      {
+        "testCaseId": "case-night-light",
+        "providerId": "mock-local",
+        "inputText": "灯光柔和一点，打开夜灯",
+        "expectedIntent": "NIGHT_LIGHT_ON",
+        "aiResult": {
+          "resultType": "DEVICE_CONTROL",
+          "intent": "NIGHT_LIGHT_ON",
+          "confidence": 0.95,
+          "slots": {},
+          "requiresConfirm": false,
+          "speak": "已为您打开夜灯"
+        },
+        "safetyResult": {
+          "decision": "APPROVED",
+          "commands": [
+            "NIGHT_LIGHT_ON"
+          ],
+          "reason": "通过安全规则",
+          "speak": "已为您打开夜灯"
+        },
+        "isMatch": true,
+        "latencyMs": 0,
+        "error": null
+      },
+      {
+        "testCaseId": "case-dry",
+        "providerId": "mock-local",
+        "inputText": "洗完澡了，干燥一下",
+        "expectedIntent": "DRY_ON",
+        "aiResult": {
+          "resultType": "DEVICE_CONTROL",
+          "intent": "DRY_ON",
+          "confidence": 0.93,
+          "slots": {},
+          "requiresConfirm": false,
+          "speak": "已为您打开干燥模式"
+        },
+        "safetyResult": {
+          "decision": "APPROVED",
+          "commands": [
+            "DRY_ON"
+          ],
+          "reason": "通过安全规则",
+          "speak": "已为您打开干燥模式"
+        },
+        "isMatch": true,
+        "latencyMs": 0,
+        "error": null
+      },
+      {
+        "testCaseId": "case-defog",
+        "providerId": "mock-local",
+        "inputText": "镜子看不清了",
+        "expectedIntent": "DEFOG_ON",
+        "aiResult": {
+          "resultType": "DEVICE_CONTROL",
+          "intent": "DEFOG_ON",
+          "confidence": 0.93,
+          "slots": {},
+          "requiresConfirm": false,
+          "speak": "已为您打开除雾模式"
+        },
+        "safetyResult": {
+          "decision": "APPROVED",
+          "commands": [
+            "DEFOG_ON"
+          ],
+          "reason": "通过安全规则",
+          "speak": "已为您打开除雾模式"
+        },
+        "isMatch": true,
+        "latencyMs": 0,
+        "error": null
+      },
+      {
+        "testCaseId": "case-standby",
+        "providerId": "mock-local",
+        "inputText": "全部关掉",
+        "expectedIntent": "STANDBY",
+        "aiResult": {
+          "resultType": "DEVICE_CONTROL",
+          "intent": "STANDBY",
+          "confidence": 0.96,
+          "slots": {},
+          "requiresConfirm": false,
+          "speak": "已为您关闭浴霸主要功能"
+        },
+        "safetyResult": {
+          "decision": "APPROVED",
+          "commands": [
+            "STANDBY"
+          ],
+          "reason": "通过安全规则",
+          "speak": "已为您关闭浴霸主要功能"
+        },
+        "isMatch": true,
+        "latencyMs": 0,
+        "error": null
+      },
+      {
+        "testCaseId": "case-temp",
+        "providerId": "mock-local",
+        "inputText": "温度调到 42 度",
+        "expectedIntent": "SET_TEMP",
+        "aiResult": {
+          "resultType": "DEVICE_CONTROL",
+          "intent": "SET_TEMP",
+          "confidence": 0.95,
+          "slots": {
+            "temperature": 42
+          },
+          "requiresConfirm": false,
+          "speak": "已将温度设置为 42 度"
+        },
+        "safetyResult": {
+          "decision": "APPROVED",
+          "commands": [
+            "SET_TEMP"
+          ],
+          "reason": "通过安全规则",
+          "speak": "已将温度设置为 42 度"
+        },
+        "isMatch": true,
+        "latencyMs": 0,
+        "error": null
+      },
+      {
+        "testCaseId": "case-chat",
+        "providerId": "mock-local",
+        "inputText": "给我讲个笑话",
+        "expectedIntent": null,
+        "aiResult": {
+          "resultType": "CHAT",
+          "intent": null,
+          "confidence": 0.9,
+          "slots": {},
+          "requiresConfirm": false,
+          "speak": "这是一个联网对话类请求，不产生设备控制动作。"
+        },
+        "safetyResult": {
+          "decision": "NO_ACTION",
+          "commands": [],
+          "reason": "模型结果不是设备控制指令",
+          "speak": "这是一个联网对话类请求，不产生设备控制动作。"
+        },
+        "isMatch": true,
+        "latencyMs": 0,
+        "error": null
+      }
+    ]
+  }
+]
