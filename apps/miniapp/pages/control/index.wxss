@@ -1,0 +1,35 @@
+.temperature-main {
+  color: #1366d6;
+  font-size: 46rpx;
+  font-weight: 800;
+}
+
+.temp-control {
+  display: grid;
+  grid-template-columns: 96rpx 1fr 96rpx;
+  align-items: center;
+  gap: 18rpx;
+  margin: 28rpx 0;
+}
+
+.temp-btn {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 8rpx;
+  background: #eef4ff;
+  color: #1366d6;
+  font-size: 42rpx;
+  line-height: 96rpx;
+}
+
+.temp-value {
+  height: 96rpx;
+  border-radius: 8rpx;
+  background: #f7f9fc;
+  color: #182235;
+  font-size: 46rpx;
+  font-weight: 800;
+  line-height: 96rpx;
+  text-align: center;
+}
+

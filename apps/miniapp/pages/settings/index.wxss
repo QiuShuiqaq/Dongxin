@@ -1,0 +1,40 @@
+.mode-row {
+  min-height: 112rpx;
+  border-bottom: 1rpx solid #edf1f6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mode-row:last-child {
+  border-bottom: 0;
+}
+
+.mode-title {
+  display: block;
+  color: #182235;
+  font-size: 28rpx;
+  font-weight: 700;
+}
+
+.mode-subtitle {
+  display: block;
+  color: #6b7280;
+  font-size: 23rpx;
+  margin-top: 8rpx;
+}
+
+.quiet-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16rpx;
+  margin-bottom: 20rpx;
+}
+
+.preview-result {
+  margin-top: 20rpx;
+  border-radius: 8rpx;
+  background: #f7f9fc;
+  padding: 18rpx;
+}
+

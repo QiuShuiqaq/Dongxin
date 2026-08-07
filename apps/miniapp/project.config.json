@@ -1,0 +1,17 @@
+{
+  "appid": "touristappid",
+  "projectname": "Dongxin-AI-Bath-Heater-Miniapp",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "coverView": true
+  },
+  "compileType": "miniprogram",
+  "libVersion": "latest",
+  "srcMiniprogramRoot": "./",
+  "condition": {}
+}
+

@@ -1,0 +1,43 @@
+.hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14rpx 0 4rpx;
+}
+
+.hero-title {
+  display: block;
+  color: #101827;
+  font-size: 42rpx;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.hero-subtitle {
+  display: block;
+  color: #6b7280;
+  font-size: 24rpx;
+  margin-top: 8rpx;
+}
+
+.online-pill {
+  min-width: 104rpx;
+  height: 52rpx;
+  border-radius: 999rpx;
+  background: #edf1f6;
+  color: #6b7280;
+  font-size: 24rpx;
+  line-height: 52rpx;
+  text-align: center;
+}
+
+.online-pill-ok {
+  background: #e7f7ef;
+  color: #1f7a4d;
+}
+
+.mini-btn {
+  width: 132rpx;
+  margin: 0;
+}
+

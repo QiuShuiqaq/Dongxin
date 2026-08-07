@@ -1,0 +1,29 @@
+<view class="page chat-page">
+  <view class="section section-card summary-card">
+    <text class="section-title">AI 控制</text>
+    <text class="section-subtitle">最近结果：{{lastIntent || '暂无'}}</text>
+  </view>
+
+  <scroll-view class="chat-list" scroll-y="true" scroll-with-animation="true">
+    <view
+      wx:for="{{messages}}"
+      wx:key="id"
+      class="message {{item.role === 'user' ? 'message-user' : 'message-assistant'}}"
+    >
+      <text>{{item.text}}</text>
+    </view>
+  </scroll-view>
+
+  <view class="chat-input-bar">
+    <input
+      class="chat-input"
+      value="{{inputText}}"
+      placeholder="输入一句需求"
+      bindinput="handleInput"
+      confirm-type="send"
+      bindconfirm="send"
+    />
+    <button class="send-btn" loading="{{sending}}" bindtap="send">发送</button>
+  </view>
+</view>
+

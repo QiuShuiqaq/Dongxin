@@ -1,0 +1,45 @@
+<view class="page">
+  <view class="section section-card">
+    <view class="row-between">
+      <view>
+        <text class="section-title">设备控制</text>
+        <text class="section-subtitle">{{state.isOnline ? '当前在线' : '当前离线'}} · {{state.faultCode ? '故障 ' + state.faultCode : '无故障'}}</text>
+      </view>
+      <text class="temperature-main">{{state.targetTemperature || targetTemperature}}℃</text>
+    </view>
+    <view class="divider"></view>
+    <view class="tag-row">
+      <text wx:if="{{!modeTags.length}}" class="tag">无运行模式</text>
+      <text wx:for="{{modeTags}}" wx:key="*this" class="tag tag-ok">{{item}}</text>
+    </view>
+  </view>
+
+  <view class="section section-card">
+    <text class="section-title">温度</text>
+    <view class="temp-control">
+      <button class="temp-btn" bindtap="decreaseTemp">-</button>
+      <text class="temp-value">{{targetTemperature}}℃</text>
+      <button class="temp-btn" bindtap="increaseTemp">+</button>
+    </view>
+    <button class="primary-btn" bindtap="applyTemperature">设置温度</button>
+  </view>
+
+  <view wx:for="{{commandGroups}}" wx:key="title" class="section section-card">
+    <text class="section-title">{{item.title}}</text>
+    <view class="divider"></view>
+    <view class="cmd-grid">
+      <view
+        wx:for="{{item.commands}}"
+        wx:for-item="cmd"
+        wx:key="intent"
+        class="cmd-btn"
+        data-intent="{{cmd.intent}}"
+        bindtap="handleCommand"
+      >
+        <text class="cmd-mark">{{cmd.mark}}</text>
+        <text class="cmd-text">{{cmd.label}}</text>
+      </view>
+    </view>
+  </view>
+</view>
+

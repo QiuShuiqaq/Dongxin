@@ -1,0 +1,69 @@
+<view class="page">
+  <view class="section hero">
+    <view>
+      <text class="hero-title">{{device.name || '东信浴霸样机'}}</text>
+      <text class="hero-subtitle">{{device.model || 'DX-AI-01'}} · {{state.onlineText || '离线'}}</text>
+    </view>
+    <view class="online-pill {{state.isOnline ? 'online-pill-ok' : ''}}">
+      <text>{{state.isOnline ? '在线' : '离线'}}</text>
+    </view>
+  </view>
+
+  <view wx:if="{{state}}" class="section grid-2">
+    <view class="metric">
+      <text class="metric-label">目标温度</text>
+      <text class="metric-value">{{state.targetTemperature}}℃</text>
+    </view>
+    <view class="metric">
+      <text class="metric-label">环境温度</text>
+      <text class="metric-value">{{state.ambientTemperature}}℃</text>
+    </view>
+    <view class="metric">
+      <text class="metric-label">环境湿度</text>
+      <text class="metric-value">{{state.humidity || '--'}}%</text>
+    </view>
+    <view class="metric">
+      <text class="metric-label">人感状态</text>
+      <text class="metric-value">{{state.hasOccupancy ? '有人' : '无人'}}</text>
+    </view>
+  </view>
+
+  <view class="section section-card">
+    <view class="row-between">
+      <view>
+        <text class="section-title">当前模式</text>
+        <text class="section-subtitle">{{state.faultCode ? '存在故障码 ' + state.faultCode : '设备状态正常'}}</text>
+      </view>
+      <button class="ghost-btn mini-btn" bindtap="goControl">控制</button>
+    </view>
+    <view class="divider"></view>
+    <view class="tag-row">
+      <text wx:if="{{!modeTags.length}}" class="tag">无运行模式</text>
+      <text wx:for="{{modeTags}}" wx:key="*this" class="tag tag-ok">{{item}}</text>
+    </view>
+  </view>
+
+  <view class="section section-card">
+    <view class="row-between">
+      <view>
+        <text class="section-title">常用控制</text>
+        <text class="section-subtitle">主要动作先走安全规则和设备指令链路</text>
+      </view>
+      <button class="ghost-btn mini-btn" bindtap="goAi">AI</button>
+    </view>
+    <view class="divider"></view>
+    <view class="cmd-grid">
+      <view
+        wx:for="{{quickCommands}}"
+        wx:key="intent"
+        class="cmd-btn"
+        data-intent="{{item.intent}}"
+        bindtap="handleCommand"
+      >
+        <text class="cmd-mark">{{item.mark}}</text>
+        <text class="cmd-text">{{item.label}}</text>
+      </view>
+    </view>
+  </view>
+</view>
+

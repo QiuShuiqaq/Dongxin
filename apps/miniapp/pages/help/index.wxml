@@ -1,0 +1,50 @@
+<view class="page">
+  <view class="section section-card">
+    <text class="section-title">产品帮助</text>
+    <view class="divider"></view>
+    <input
+      class="input"
+      value="{{question}}"
+      placeholder="输入产品或售后问题"
+      bindinput="handleInput"
+      confirm-type="search"
+      bindconfirm="search"
+    />
+    <view class="category-row">
+      <view
+        wx:for="{{categories}}"
+        wx:key="value"
+        class="category-pill {{selectedCategory === item.value ? 'category-pill-active' : ''}}"
+        data-value="{{item.value}}"
+        bindtap="selectCategory"
+      >
+        <text>{{item.label}}</text>
+      </view>
+    </view>
+    <button class="primary-btn" loading="{{searching}}" bindtap="search">查询</button>
+  </view>
+
+  <view class="section section-card">
+    <text class="section-title">常见问题</text>
+    <view class="divider"></view>
+    <view
+      wx:for="{{quickQuestions}}"
+      wx:key="*this"
+      class="quick-question"
+      data-question="{{item}}"
+      bindtap="useQuickQuestion"
+    >
+      <text>{{item}}</text>
+    </view>
+  </view>
+
+  <view wx:if="{{result}}" class="section section-card">
+    <text class="section-title">回答</text>
+    <text class="answer-text">{{result.answer}}</text>
+    <view wx:if="{{result.hits.length}}" class="tag-row">
+      <text wx:for="{{result.hits}}" wx:key="documentId" class="tag">{{item.title}}</text>
+    </view>
+    <text wx:if="{{result.usedFallback}}" class="section-subtitle">建议以官方售后确认为准</text>
+  </view>
+</view>
+

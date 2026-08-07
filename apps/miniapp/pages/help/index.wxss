@@ -1,0 +1,44 @@
+.category-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin: 20rpx 0;
+}
+
+.category-pill {
+  min-width: 96rpx;
+  height: 56rpx;
+  border-radius: 999rpx;
+  background: #edf1f6;
+  color: #6b7280;
+  font-size: 24rpx;
+  line-height: 56rpx;
+  text-align: center;
+}
+
+.category-pill-active {
+  background: #eef4ff;
+  color: #1366d6;
+  font-weight: 700;
+}
+
+.quick-question {
+  min-height: 78rpx;
+  border-bottom: 1rpx solid #edf1f6;
+  color: #182235;
+  font-size: 27rpx;
+  line-height: 78rpx;
+}
+
+.quick-question:last-child {
+  border-bottom: 0;
+}
+
+.answer-text {
+  display: block;
+  color: #182235;
+  font-size: 28rpx;
+  line-height: 1.6;
+  margin: 20rpx 0;
+}
+

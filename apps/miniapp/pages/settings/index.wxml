@@ -1,0 +1,51 @@
+<view class="page">
+  <view class="section section-card">
+    <view class="row-between">
+      <view>
+        <text class="section-title">主动沟通</text>
+        <text class="section-subtitle">{{modeText || '未设置'}}</text>
+      </view>
+      <switch checked="{{settings.enabled}}" bindchange="toggleEnabled" color="#1366d6" />
+    </view>
+  </view>
+
+  <view class="section section-card">
+    <text class="section-title">模式</text>
+    <radio-group bindchange="changeMode">
+      <label wx:for="{{modes}}" wx:key="value" class="mode-row">
+        <view>
+          <text class="mode-title">{{item.label}}</text>
+          <text class="mode-subtitle">{{item.value === 'PRACTICAL' ? '简短提醒' : item.value === 'RELAXED' ? '更轻松的话术' : '减少主动播报'}}</text>
+        </view>
+        <radio value="{{item.value}}" checked="{{settings.mode === item.value}}" color="#1366d6" />
+      </label>
+    </radio-group>
+  </view>
+
+  <view class="section section-card">
+    <view class="row-between">
+      <view>
+        <text class="section-title">安静时段</text>
+        <text class="section-subtitle">{{settings.quietHours.start}} - {{settings.quietHours.end}}</text>
+      </view>
+      <switch checked="{{settings.quietHours.enabled}}" bindchange="changeQuietEnabled" color="#1366d6" />
+    </view>
+    <view class="divider"></view>
+    <view class="quiet-grid">
+      <input class="input" value="{{settings.quietHours.start}}" bindinput="changeQuietStart" />
+      <input class="input" value="{{settings.quietHours.end}}" bindinput="changeQuietEnd" />
+    </view>
+    <button class="primary-btn" bindtap="saveQuietHours">保存时段</button>
+  </view>
+
+  <view class="section section-card">
+    <text class="section-title">触发预览</text>
+    <view class="divider"></view>
+    <button class="ghost-btn" bindtap="previewEnter">人感进入</button>
+    <view wx:if="{{lastDecision}}" class="preview-result">
+      <text class="strong">{{lastDecision.reason}}</text>
+      <text class="section-subtitle">{{lastDecision.shouldSpeak ? lastDecision.speak : '无播报'}}</text>
+    </view>
+  </view>
+</view>
+
