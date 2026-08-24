@@ -6,13 +6,14 @@ import { registerRoutes } from './routes/index.js';
 
 export async function createServer() {
   const server = Fastify({
-    logger: true
+    logger: true,
+    bodyLimit: 10 * 1024 * 1024
   });
 
   await server.register(cors, {
     origin: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type']
+    allowedHeaders: ['Content-Type', 'X-Device-Id', 'X-Request-Id', 'X-Timestamp', 'X-Signature']
   });
 
   await registerRoutes(server);
@@ -30,4 +31,3 @@ export async function createServer() {
 
   return server;
 }
-

@@ -9,7 +9,7 @@ npm run dev
 ```
 
 - Web 后台：`http://127.0.0.1:5173/`
-- API 服务：`http://127.0.0.1:3001`
+- API 服务：`http://127.0.0.1:3077`
 - 健康检查：`GET /api/health`
 
 ## 基础测试台
@@ -38,6 +38,56 @@ npm run dev
 | `GET /api/devices/:deviceId/state` | 当前设备状态 |
 | `POST /api/devices/:deviceId/events` | 设备状态、雷达、人感、故障等事件上报 |
 | `POST /api/devices/:deviceId/commands` | 后台直接下发测试命令 |
+
+## 设备端 V1 接入接口
+
+设备端接口用于 WiFi 联网模块接入真实样机联调，统一返回：
+
+```json
+{
+  "success": true,
+  "requestId": "req_001",
+  "serverTime": "2026-08-16T10:00:00.000Z",
+  "data": {}
+}
+```
+
+| 接口 | 说明 |
+| --- | --- |
+| `POST /api/device/v1/register` | 设备注册，写入或更新设备档案 |
+| `POST /api/device/v1/heartbeat` | 设备心跳，刷新在线状态 |
+| `GET /api/device/v1/config?deviceId=...` | 获取轮询、心跳、超时等配置 |
+| `POST /api/device/v1/state` | 设备状态上报，更新当前设备状态 |
+| `POST /api/device/v1/events` | 雷达、人感、故障等事件上报，可触发主动沟通 |
+| `POST /api/device/v1/voice-turn` | 语音识别文本上传，返回播报文本和控制动作 |
+| `GET /api/device/v1/commands/poll?deviceId=...&limit=5` | 设备轮询待执行命令 |
+| `POST /api/device/v1/commands/result` | 上报 MCU 执行结果 |
+
+语音文本上传示例：
+
+```json
+{
+  "deviceId": "demo-bath-heater-001",
+  "sessionId": "voice_001",
+  "text": "我有点冷",
+  "asrConfidence": 0.91,
+  "reportedState": {
+    "ambientTemperature": 24,
+    "humidity": 70,
+    "hasOccupancy": true,
+    "faultCode": null
+  }
+}
+```
+
+返回核心字段：
+
+- `replyText`：播报文本；
+- `needConfirm`：是否需要二次确认；
+- `confirmToken`：确认令牌；
+- `source`：`rule` / `knowledge` / `llm` / `confirm`；
+- `actions`：WiFi 模块需要转换为 MCU 固定帧的标准动作；
+- `usage`：是否调用 LLM、token、费用和耗时。
 
 ## 语音入口
 
@@ -73,7 +123,7 @@ npm run dev
 | `POST /api/knowledge/documents` | 新增资料 |
 | `POST /api/knowledge/query` | 知识库问答测试 |
 
-当前使用轻量关键词检索。资料不存在或无法匹配时，统一返回“建议联系官方售后”的兜底回答。
+当前使用轻量关键词检索。资料不存在或无法匹配时，统一返回“建议联系官方售后”的兜底回答，不再继续走 LLM。
 
 ## 主动沟通
 

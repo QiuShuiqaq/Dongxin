@@ -9,7 +9,7 @@
 - 前端：React 19、Vite、Ant Design、Ant Design X
 - 后端：Node.js、Fastify、TypeScript
 - 数据：项目本地 JSON 文件
-- 模型接入：统一模型网关，默认提供 Mock 模型，预留 OpenAI-compatible API
+- 模型接入：统一模型网关，默认配置国内 OpenAI-compatible 真实模型
 
 ## 本地运行
 
@@ -21,7 +21,7 @@ npm run dev
 默认地址：
 
 - 前端：http://localhost:5173
-- 后端：http://localhost:3001/api/health
+- 后端：http://localhost:3077/api/health
 
 ## 本地 API Key
 
@@ -31,7 +31,10 @@ npm run dev
 ARK_API_KEY=
 DASHSCOPE_API_KEY=
 QIANFAN_API_KEY=
-ZHIPU_API_KEY=
+DEEPSEEK_API_KEY=
+ZAI_API_KEY=
+HUNYUAN_API_KEY=
+MOONSHOT_API_KEY=
 ```
 
 ## 边界

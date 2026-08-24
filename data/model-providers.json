@@ -1,41 +1,366 @@
 [
   {
-    "id": "mock-local",
-    "name": "本地 Mock 规则模型",
-    "type": "MOCK",
-    "enabled": true,
-    "model": "deterministic-intent-v0",
-    "baseUrl": null,
-    "apiKeyEnv": null,
-    "timeoutMs": 3000,
-    "inputPricePerMTokens": 0,
-    "outputPricePerMTokens": 0,
-    "notes": "不调用外部 API，用于本地端到端验证。"
-  },
-  {
-    "id": "volcengine-doubao",
-    "name": "火山方舟 / 豆包",
+    "id": "aliyun-qwen3-7-flash",
+    "name": "阿里百炼 Qwen3.7 Flash",
     "type": "OPENAI_COMPATIBLE",
     "enabled": true,
-    "model": "请填写采购账号可用模型ID",
-    "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
-    "apiKeyEnv": "ARK_API_KEY",
-    "timeoutMs": 8000,
-    "inputPricePerMTokens": null,
-    "outputPricePerMTokens": null,
-    "notes": "主测供应商。模型 ID 和价格以企业采购控制台为准。"
+    "model": "qwen3.7-flash",
+    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "apiKeyEnv": "DASHSCOPE_API_KEY",
+    "apiKeyUrl": "https://bailian.console.aliyun.com/cn-beijing/?tab=app#/api-key",
+    "timeoutMs": 6000,
+    "inputPricePerMTokens": 0.2,
+    "outputPricePerMTokens": 0.8,
+    "requestBody": {
+      "enable_thinking": false
+    },
+    "notes": "首批主测低价模型。适合测试浴霸意图理解、JSON 稳定性和单次成本。"
   },
   {
-    "id": "aliyun-qwen",
-    "name": "阿里云百炼 / 通义千问",
+    "id": "aliyun-qwen3-5-flash",
+    "name": "阿里百炼 Qwen3.5 Flash",
     "type": "OPENAI_COMPATIBLE",
     "enabled": true,
+    "model": "qwen3.5-flash",
+    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "apiKeyEnv": "DASHSCOPE_API_KEY",
+    "apiKeyUrl": "https://bailian.console.aliyun.com/cn-beijing/?tab=app#/api-key",
+    "timeoutMs": 6000,
+    "inputPricePerMTokens": 0.2,
+    "outputPricePerMTokens": 2,
+    "requestBody": {
+      "enable_thinking": false
+    },
+    "notes": "轻量低价版本，适合大量简单语料。"
+  },
+  {
+    "id": "aliyun-qwen-flash",
+    "name": "阿里百炼 Qwen Flash",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": true,
+    "model": "qwen-flash",
+    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "apiKeyEnv": "DASHSCOPE_API_KEY",
+    "apiKeyUrl": "https://bailian.console.aliyun.com/cn-beijing/?tab=app#/api-key",
+    "timeoutMs": 6000,
+    "inputPricePerMTokens": 0.15,
+    "outputPricePerMTokens": 1.5,
+    "requestBody": {
+      "enable_thinking": false
+    },
+    "notes": "低成本通用对照，适合单轮短回复测试。"
+  },
+  {
+    "id": "aliyun-qwen-turbo",
+    "name": "阿里百炼 Qwen Turbo",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": true,
+    "model": "qwen-turbo",
+    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "apiKeyEnv": "DASHSCOPE_API_KEY",
+    "apiKeyUrl": "https://bailian.console.aliyun.com/cn-beijing/?tab=app#/api-key",
+    "timeoutMs": 6000,
+    "inputPricePerMTokens": 0.3,
+    "outputPricePerMTokens": 0.6,
+    "requestBody": {
+      "enable_thinking": false
+    },
+    "notes": "低价稳定基线，用来对比输出稳定性、延迟和成本。"
+  },
+  {
+    "id": "aliyun-qwen-long",
+    "name": "阿里百炼 Qwen Long",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": true,
+    "model": "qwen-long",
+    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "apiKeyEnv": "DASHSCOPE_API_KEY",
+    "apiKeyUrl": "https://bailian.console.aliyun.com/cn-beijing/?tab=app#/api-key",
+    "timeoutMs": 7000,
+    "inputPricePerMTokens": 0.5,
+    "outputPricePerMTokens": 2,
+    "requestBody": {
+      "enable_thinking": false
+    },
+    "notes": "长上下文备选，便于后续企业知识库联调。"
+  },
+  {
+    "id": "aliyun-qwen-plus",
+    "name": "阿里百炼 Qwen Plus",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": false,
     "model": "qwen-plus",
     "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     "apiKeyEnv": "DASHSCOPE_API_KEY",
+    "apiKeyUrl": "https://bailian.console.aliyun.com/cn-beijing/?tab=app#/api-key",
+    "timeoutMs": 7000,
+    "inputPricePerMTokens": 0.8,
+    "outputPricePerMTokens": 2,
+    "requestBody": {
+      "enable_thinking": false
+    },
+    "notes": "中低成本通用模型，用来校准复杂语料准确率。"
+  },
+  {
+    "id": "qianfan-deepseek-v4-flash",
+    "name": "百度千帆 DeepSeek V4 Flash",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": false,
+    "model": "deepseek-v4-flash",
+    "baseUrl": "https://qianfan.baidubce.com/v2",
+    "apiKeyEnv": "QIANFAN_API_KEY",
+    "apiKeyUrl": "https://console.bce.baidu.com/qianfan/overview",
     "timeoutMs": 8000,
-    "inputPricePerMTokens": null,
-    "outputPricePerMTokens": null,
-    "notes": "对照供应商。"
+    "inputPricePerMTokens": 1,
+    "outputPricePerMTokens": 2,
+    "notes": "千帆托管版本，和 DeepSeek 官方直连对比成功率、延迟和成本。"
+  },
+  {
+    "id": "qianfan-ernie-lite-8k",
+    "name": "百度千帆 ERNIE Lite 8K",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": false,
+    "model": "ernie-lite-8k",
+    "baseUrl": "https://qianfan.baidubce.com/v2",
+    "apiKeyEnv": "QIANFAN_API_KEY",
+    "apiKeyUrl": "https://console.bce.baidu.com/qianfan/overview",
+    "timeoutMs": 8000,
+    "inputPricePerMTokens": 3,
+    "outputPricePerMTokens": 6,
+    "notes": "百度自研低价基础模型，用于供应商多样性对照。"
+  },
+  {
+    "id": "qianfan-ernie-speed-8k",
+    "name": "百度千帆 ERNIE Speed 8K",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": false,
+    "model": "ernie-speed-8k",
+    "baseUrl": "https://qianfan.baidubce.com/v2",
+    "apiKeyEnv": "QIANFAN_API_KEY",
+    "apiKeyUrl": "https://console.bce.baidu.com/qianfan/overview",
+    "timeoutMs": 8000,
+    "inputPricePerMTokens": 4,
+    "outputPricePerMTokens": 8,
+    "notes": "百度自研速度型模型，用于延迟和稳定性对照。"
+  },
+  {
+    "id": "deepseek-official-v4-flash",
+    "name": "DeepSeek 官方 V4 Flash",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": true,
+    "model": "deepseek-v4-flash",
+    "baseUrl": "https://api.deepseek.com",
+    "apiKeyEnv": "DEEPSEEK_API_KEY",
+    "apiKeyUrl": "https://platform.deepseek.com/api_keys",
+    "timeoutMs": 8000,
+    "inputPricePerMTokens": 3.17,
+    "outputPricePerMTokens": 9.5,
+    "requestBody": {
+      "thinking": {
+        "type": "disabled"
+      }
+    },
+    "notes": "官方直连对照项。价格按官方峰值美元价折算为人民币，实际以控制台为准。"
+  },
+  {
+    "id": "deepseek-official-chat",
+    "name": "DeepSeek 官方 Chat",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": false,
+    "model": "deepseek-chat",
+    "baseUrl": "https://api.deepseek.com",
+    "apiKeyEnv": "DEEPSEEK_API_KEY",
+    "apiKeyUrl": "https://platform.deepseek.com/api_keys",
+    "timeoutMs": 8000,
+    "inputPricePerMTokens": 3.17,
+    "outputPricePerMTokens": 9.5,
+    "requestBody": {
+      "thinking": {
+        "type": "disabled"
+      }
+    },
+    "notes": "官方 Chat 接口别名对照，便于确认不同模型 ID 的兼容性。"
+  },
+  {
+    "id": "volcengine-doubao-seed-1-6-flash",
+    "name": "火山方舟 Doubao Seed 1.6 Flash",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": false,
+    "model": "doubao-seed-1-6-flash-250828",
+    "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+    "apiKeyEnv": "ARK_API_KEY",
+    "apiKeyUrl": "https://console.volcengine.com/ark/region:cn-beijing/apikey",
+    "timeoutMs": 8000,
+    "inputPricePerMTokens": 0.8,
+    "outputPricePerMTokens": 8,
+    "notes": "豆包低价主测项。如控制台使用 Endpoint ID，可把 model 改成对应 Endpoint ID。"
+  },
+  {
+    "id": "volcengine-doubao-1-5-lite-32k",
+    "name": "火山方舟 Doubao 1.5 Lite 32K",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": true,
+    "model": "doubao-1-5-lite-32k",
+    "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+    "apiKeyEnv": "ARK_API_KEY",
+    "apiKeyUrl": "https://console.volcengine.com/ark/region:cn-beijing/apikey",
+    "timeoutMs": 8000,
+    "inputPricePerMTokens": 0.3,
+    "outputPricePerMTokens": 0.6,
+    "notes": "豆包低成本对照项，适合短句意图识别和低成本批测。"
+  },
+  {
+    "id": "volcengine-doubao-1-5-pro-32k",
+    "name": "火山方舟 Doubao 1.5 Pro 32K",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": false,
+    "model": "doubao-1-5-pro-32k",
+    "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+    "apiKeyEnv": "ARK_API_KEY",
+    "apiKeyUrl": "https://console.volcengine.com/ark/region:cn-beijing/apikey",
+    "timeoutMs": 8000,
+    "inputPricePerMTokens": 0.8,
+    "outputPricePerMTokens": 2,
+    "notes": "豆包中档对照项，适合复杂语料稳定性评估。"
+  },
+  {
+    "id": "zai-glm-4-7-flash",
+    "name": "智谱 Z.AI GLM-4.7 Flash",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": false,
+    "model": "glm-4.7-flash",
+    "baseUrl": "https://api.z.ai/api/paas/v4",
+    "apiKeyEnv": "ZAI_API_KEY",
+    "apiKeyUrl": "https://z.ai/manage-apikey/apikey-list",
+    "timeoutMs": 8000,
+    "inputPricePerMTokens": 0,
+    "outputPricePerMTokens": 0,
+    "requestBody": {
+      "thinking": {
+        "type": "disabled"
+      }
+    },
+    "notes": "成本下限对照模型。正式采购前以智谱控制台当前计费为准。"
+  },
+  {
+    "id": "zai-glm-4-5-flash",
+    "name": "智谱 Z.AI GLM-4.5 Flash",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": false,
+    "model": "glm-4.5-flash",
+    "baseUrl": "https://api.z.ai/api/paas/v4",
+    "apiKeyEnv": "ZAI_API_KEY",
+    "apiKeyUrl": "https://z.ai/manage-apikey/apikey-list",
+    "timeoutMs": 8000,
+    "inputPricePerMTokens": 0,
+    "outputPricePerMTokens": 0,
+    "requestBody": {
+      "thinking": {
+        "type": "disabled"
+      }
+    },
+    "notes": "免费档低成本对照，适合基础输出格式测试。"
+  },
+  {
+    "id": "zai-glm-4-5-air",
+    "name": "智谱 Z.AI GLM-4.5 Air",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": false,
+    "model": "glm-4.5-air",
+    "baseUrl": "https://api.z.ai/api/paas/v4",
+    "apiKeyEnv": "ZAI_API_KEY",
+    "apiKeyUrl": "https://z.ai/manage-apikey/apikey-list",
+    "timeoutMs": 8000,
+    "inputPricePerMTokens": 1.44,
+    "outputPricePerMTokens": 7.92,
+    "requestBody": {
+      "thinking": {
+        "type": "disabled"
+      }
+    },
+    "notes": "成本控制版本，适合日常交互对照。"
+  },
+  {
+    "id": "tencent-hunyuan-lite",
+    "name": "腾讯混元 Lite",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": false,
+    "model": "hunyuan-lite",
+    "baseUrl": "https://api.hunyuan.cloud.tencent.com/v1",
+    "apiKeyEnv": "HUNYUAN_API_KEY",
+    "apiKeyUrl": "https://console.cloud.tencent.com/hunyuan/api-key",
+    "timeoutMs": 8000,
+    "inputPricePerMTokens": 0,
+    "outputPricePerMTokens": 0,
+    "notes": "腾讯云低成本对照项，适合确认企业采购通道和接口稳定性。"
+  },
+  {
+    "id": "tencent-hunyuan-standard",
+    "name": "腾讯混元 Standard",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": false,
+    "model": "hunyuan-standard",
+    "baseUrl": "https://api.hunyuan.cloud.tencent.com/v1",
+    "apiKeyEnv": "HUNYUAN_API_KEY",
+    "apiKeyUrl": "https://console.cloud.tencent.com/hunyuan/api-key",
+    "timeoutMs": 8000,
+    "inputPricePerMTokens": 4.5,
+    "outputPricePerMTokens": 18,
+    "notes": "腾讯云标准档对照，用于复杂语料准确率校准。"
+  },
+  {
+    "id": "moonshot-v1-8k",
+    "name": "月之暗面 Moonshot v1 8K",
+    "type": "OPENAI_COMPATIBLE",
+    "enabled": false,
+    "model": "moonshot-v1-8k",
+    "baseUrl": "https://api.moonshot.cn/v1",
+    "apiKeyEnv": "MOONSHOT_API_KEY",
+    "apiKeyUrl": "https://platform.moonshot.cn/console/api-keys",
+    "timeoutMs": 8000,
+    "inputPricePerMTokens": 12,
+    "outputPricePerMTokens": 12,
+    "notes": "Kimi 短上下文对照项，价格较高，默认不作为低成本主测。"
+  },
+  {
+    "id": "custom-asr-http",
+    "name": "自定义 ASR（HTTP JSON）",
+    "type": "OPENAI_COMPATIBLE",
+    "serviceType": "ASR",
+    "protocol": "HTTP_JSON",
+    "enabled": false,
+    "model": "your-asr-model",
+    "baseUrl": null,
+    "apiKeyEnv": "CUSTOM_ASR_API_KEY",
+    "apiKeyUrl": null,
+    "timeoutMs": 8000,
+    "maxOutputTokens": 128,
+    "billingMode": "PER_REQUEST",
+    "pricePerRequestCny": 0,
+    "averageSecondsPerRequest": 3,
+    "audioFormat": "webm",
+    "responseTextPath": "text",
+    "notes": "填写真实 HTTP JSON 接口、模型名称和 API Key 后启用。响应默认读取 text 字段。"
+  },
+  {
+    "id": "custom-tts-http",
+    "name": "自定义 TTS（HTTP JSON）",
+    "type": "OPENAI_COMPATIBLE",
+    "serviceType": "TTS",
+    "protocol": "HTTP_JSON",
+    "enabled": false,
+    "model": "your-tts-model",
+    "baseUrl": null,
+    "apiKeyEnv": "CUSTOM_TTS_API_KEY",
+    "apiKeyUrl": null,
+    "timeoutMs": 8000,
+    "maxOutputTokens": 128,
+    "packageCalls": 1,
+    "packagePriceCny": 0,
+    "voice": "",
+    "audioFormat": "mp3",
+    "responseAudioPath": "audioBase64",
+    "responseMimeTypePath": "mimeType",
+    "notes": "填写真实 HTTP JSON 接口、模型名称和 API Key 后启用。响应默认读取 audioBase64 和 mimeType 字段。"
   }
 ]

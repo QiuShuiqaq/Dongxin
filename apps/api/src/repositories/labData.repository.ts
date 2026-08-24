@@ -1,8 +1,10 @@
-import type { EvaluationRun, ModelProvider, PromptVersion, TestCase } from '@dongxin/shared';
+import type { EvaluationRun, ModelProvider, PromptVersion, TestCase, TestSet } from '@dongxin/shared';
 import {
+  EvaluationRunSchema,
   ModelProviderSchema,
   PromptVersionSchema,
-  TestCaseSchema
+  TestCaseSchema,
+  TestSetSchema
 } from '@dongxin/shared';
 import { z } from 'zod';
 import { readJsonFile, writeJsonFile } from '../storage.js';
@@ -28,11 +30,21 @@ export async function listTestCases(): Promise<TestCase[]> {
   return z.array(TestCaseSchema).parse(testCases);
 }
 
+export async function listTestSets(): Promise<TestSet[]> {
+  const testSets = await readJsonFile<TestSet[]>('test-sets.json', []);
+  return z.array(TestSetSchema).parse(testSets);
+}
+
+export async function saveTestSets(testSets: TestSet[]): Promise<void> {
+  const parsed = z.array(TestSetSchema).parse(testSets);
+  await writeJsonFile('test-sets.json', parsed);
+}
+
 export async function listEvaluations(): Promise<EvaluationRun[]> {
-  return readJsonFile<EvaluationRun[]>('evaluations.json', []);
+  const evaluations = await readJsonFile<EvaluationRun[]>('evaluations.json', []);
+  return z.array(EvaluationRunSchema).parse(evaluations);
 }
 
 export async function saveEvaluations(evaluations: EvaluationRun[]): Promise<void> {
   await writeJsonFile('evaluations.json', evaluations);
 }
-

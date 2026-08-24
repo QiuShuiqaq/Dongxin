@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { callModel } from '../modelGateway.js';
 import { applySafetyRules } from '../rules.js';
 import { getCurrentDeviceState, executeDeviceCommand } from './device.service.js';
+import { appendLog } from './log.service.js';
 import { listProviders, findProvider } from './provider.service.js';
 import { listPrompts, findPrompt } from './prompt.service.js';
 
@@ -39,10 +40,25 @@ export async function runChatTest(requestBody: unknown): Promise<ChatTestRespons
     }
   }
 
+  await appendLog({
+    type: 'AI',
+    summary: `Chat test ${provider.id}`,
+    payload: {
+      billingSource: 'EVALUATION',
+      requestType: 'LLM',
+      providerId: provider.id,
+      promptId: prompt.id,
+      inputText: body.inputText,
+      latencyMs: modelOutput.latencyMs,
+      usage: modelOutput.usage,
+      aiResult: modelOutput.aiResult,
+      safetyResult
+    }
+  });
+
   return {
     ...modelOutput,
     safetyResult,
     deviceState
   };
 }
-

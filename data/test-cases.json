@@ -1,82 +1,354 @@
 [
   {
-    "id": "case-cold-weak",
-    "category": "取暖类",
-    "inputText": "有点冷，暖和一点",
-    "expectedIntent": "HEAT_WEAK_ON",
-    "riskLevel": "LOW",
-    "notes": "模糊取暖意图"
-  },
-  {
-    "id": "case-cold-strong",
-    "category": "取暖类",
-    "inputText": "太冷了，开强一点",
-    "expectedIntent": "HEAT_STRONG_ON",
-    "riskLevel": "MEDIUM",
-    "notes": "强暖需要受规则引擎约束"
-  },
-  {
-    "id": "case-air",
-    "category": "通风换气类",
-    "inputText": "浴室空气不好，有味道",
-    "expectedIntent": "VENTILATION_ON",
-    "riskLevel": "LOW",
-    "notes": "可后续扩展为换气加净化组合动作"
-  },
-  {
-    "id": "case-light",
-    "category": "照明类",
+    "id": "case-light-on-1",
+    "category": "照明",
     "inputText": "开灯",
     "expectedIntent": "LIGHT_ON",
     "riskLevel": "LOW",
-    "notes": "明确控制指令"
+    "notes": "最基础照明指令"
   },
   {
-    "id": "case-night-light",
-    "category": "照明类",
-    "inputText": "灯光柔和一点，打开夜灯",
+    "id": "case-light-on-2",
+    "category": "照明",
+    "inputText": "把照明打开",
+    "expectedIntent": "LIGHT_ON",
+    "riskLevel": "LOW",
+    "notes": "同义表达"
+  },
+  {
+    "id": "case-light-off-1",
+    "category": "照明",
+    "inputText": "关灯",
+    "expectedIntent": "LIGHT_OFF",
+    "riskLevel": "LOW",
+    "notes": "最基础关闭照明"
+  },
+  {
+    "id": "case-night-on-1",
+    "category": "照明",
+    "inputText": "打开夜灯",
     "expectedIntent": "NIGHT_LIGHT_ON",
     "riskLevel": "LOW",
-    "notes": "夜灯"
+    "notes": "夜间柔光"
   },
   {
-    "id": "case-dry",
-    "category": "模式类",
-    "inputText": "洗完澡了，干燥一下",
+    "id": "case-night-off-1",
+    "category": "照明",
+    "inputText": "关闭夜灯",
+    "expectedIntent": "NIGHT_LIGHT_OFF",
+    "riskLevel": "LOW",
+    "notes": "夜灯关闭"
+  },
+  {
+    "id": "case-light-soft",
+    "category": "照明",
+    "inputText": "灯光柔和一点",
+    "expectedIntent": "NIGHT_LIGHT_ON",
+    "riskLevel": "LOW",
+    "notes": "夜间柔光表达"
+  },
+  {
+    "id": "case-heat-weak-1",
+    "category": "取暖",
+    "inputText": "有点冷，开弱暖",
+    "expectedIntent": "HEAT_WEAK_ON",
+    "riskLevel": "LOW",
+    "notes": "弱暖标准表达"
+  },
+  {
+    "id": "case-heat-weak-2",
+    "category": "取暖",
+    "inputText": "洗澡有点冷，帮我开小暖风",
+    "expectedIntent": "HEAT_WEAK_ON",
+    "riskLevel": "LOW",
+    "notes": "弱暖口语表达"
+  },
+  {
+    "id": "case-heat-strong-1",
+    "category": "取暖",
+    "inputText": "太冷了，开强暖",
+    "expectedIntent": "HEAT_STRONG_ON",
+    "riskLevel": "MEDIUM",
+    "notes": "强暖高频场景"
+  },
+  {
+    "id": "case-heat-strong-2",
+    "category": "取暖",
+    "inputText": "把暖风开大一点",
+    "expectedIntent": "HEAT_STRONG_ON",
+    "riskLevel": "MEDIUM",
+    "notes": "强暖口语表达"
+  },
+  {
+    "id": "case-heat-off-weak",
+    "category": "取暖",
+    "inputText": "弱暖关掉",
+    "expectedIntent": "HEAT_WEAK_OFF",
+    "riskLevel": "LOW",
+    "notes": "关闭弱暖"
+  },
+  {
+    "id": "case-heat-off-strong",
+    "category": "取暖",
+    "inputText": "强暖关掉",
+    "expectedIntent": "HEAT_STRONG_OFF",
+    "riskLevel": "LOW",
+    "notes": "关闭强暖"
+  },
+  {
+    "id": "case-temp-38",
+    "category": "温控",
+    "inputText": "温度调到 38 度",
+    "expectedIntent": "SET_TEMP",
+    "riskLevel": "LOW",
+    "notes": "槽位 temperature=38"
+  },
+  {
+    "id": "case-temp-42",
+    "category": "温控",
+    "inputText": "设成四十二度",
+    "expectedIntent": "SET_TEMP",
+    "riskLevel": "LOW",
+    "notes": "中文数字"
+  },
+  {
+    "id": "case-temp-up",
+    "category": "温控",
+    "inputText": "温度再高一点",
+    "expectedIntent": "SET_TEMP",
+    "riskLevel": "MEDIUM",
+    "notes": "模型需要结合上下文推断目标值"
+  },
+  {
+    "id": "case-const-on",
+    "category": "温控",
+    "inputText": "开启恒温模式",
+    "expectedIntent": "CONSTANT_TEMP_ON",
+    "riskLevel": "MEDIUM",
+    "notes": "恒温模式"
+  },
+  {
+    "id": "case-const-off",
+    "category": "温控",
+    "inputText": "关闭恒温模式",
+    "expectedIntent": "CONSTANT_TEMP_OFF",
+    "riskLevel": "LOW",
+    "notes": "关闭恒温"
+  },
+  {
+    "id": "case-vent-on",
+    "category": "换气",
+    "inputText": "浴室空气不好，开换气",
+    "expectedIntent": "VENTILATION_ON",
+    "riskLevel": "LOW",
+    "notes": "通风换气"
+  },
+  {
+    "id": "case-vent-off",
+    "category": "换气",
+    "inputText": "换气关掉",
+    "expectedIntent": "VENTILATION_OFF",
+    "riskLevel": "LOW",
+    "notes": "关闭换气"
+  },
+  {
+    "id": "case-fan-on",
+    "category": "吹风",
+    "inputText": "打开吹风",
+    "expectedIntent": "FAN_ON",
+    "riskLevel": "LOW",
+    "notes": "吹风功能"
+  },
+  {
+    "id": "case-fan-off",
+    "category": "吹风",
+    "inputText": "关闭吹风",
+    "expectedIntent": "FAN_OFF",
+    "riskLevel": "LOW",
+    "notes": "关闭吹风"
+  },
+  {
+    "id": "case-swing-on",
+    "category": "摆风",
+    "inputText": "开启摆风",
+    "expectedIntent": "SWING_ON",
+    "riskLevel": "LOW",
+    "notes": "扫风/摆风"
+  },
+  {
+    "id": "case-swing-off",
+    "category": "摆风",
+    "inputText": "关闭摆风",
+    "expectedIntent": "SWING_OFF",
+    "riskLevel": "LOW",
+    "notes": "关闭扫风"
+  },
+  {
+    "id": "case-dry-on",
+    "category": "模式",
+    "inputText": "洗完澡了，开干燥",
     "expectedIntent": "DRY_ON",
     "riskLevel": "LOW",
     "notes": "干燥模式"
   },
   {
-    "id": "case-defog",
-    "category": "模式类",
-    "inputText": "镜子看不清了",
+    "id": "case-dry-off",
+    "category": "模式",
+    "inputText": "干燥模式关掉",
+    "expectedIntent": "DRY_OFF",
+    "riskLevel": "LOW",
+    "notes": "关闭干燥"
+  },
+  {
+    "id": "case-defog-on",
+    "category": "模式",
+    "inputText": "镜子起雾了，开除雾",
     "expectedIntent": "DEFOG_ON",
     "riskLevel": "LOW",
-    "notes": "除雾模式"
+    "notes": "除雾功能"
   },
   {
-    "id": "case-standby",
-    "category": "关机类",
+    "id": "case-defog-off",
+    "category": "模式",
+    "inputText": "除雾关掉",
+    "expectedIntent": "DEFOG_OFF",
+    "riskLevel": "LOW",
+    "notes": "关闭除雾"
+  },
+  {
+    "id": "case-bath-on",
+    "category": "模式",
+    "inputText": "切到沐浴模式",
+    "expectedIntent": "BATH_MODE_ON",
+    "riskLevel": "LOW",
+    "notes": "沐浴模式"
+  },
+  {
+    "id": "case-bath-off",
+    "category": "模式",
+    "inputText": "退出沐浴模式",
+    "expectedIntent": "BATH_MODE_OFF",
+    "riskLevel": "LOW",
+    "notes": "退出沐浴模式"
+  },
+  {
+    "id": "case-broadcast-on",
+    "category": "播报",
+    "inputText": "打开语音播报",
+    "expectedIntent": "VOICE_BROADCAST_ON",
+    "riskLevel": "LOW",
+    "notes": "语音播报开"
+  },
+  {
+    "id": "case-broadcast-off",
+    "category": "播报",
+    "inputText": "关闭语音播报",
+    "expectedIntent": "VOICE_BROADCAST_OFF",
+    "riskLevel": "LOW",
+    "notes": "语音播报关"
+  },
+  {
+    "id": "case-volume-up",
+    "category": "播报",
+    "inputText": "声音大一点",
+    "expectedIntent": "VOLUME_UP",
+    "riskLevel": "LOW",
+    "notes": "播报音量提高"
+  },
+  {
+    "id": "case-volume-down",
+    "category": "播报",
+    "inputText": "声音小一点",
+    "expectedIntent": "VOLUME_DOWN",
+    "riskLevel": "LOW",
+    "notes": "播报音量降低"
+  },
+  {
+    "id": "case-standby-1",
+    "category": "关机",
     "inputText": "全部关掉",
     "expectedIntent": "STANDBY",
-    "riskLevel": "LOW",
-    "notes": "待机"
+    "riskLevel": "MEDIUM",
+    "notes": "整机待机"
   },
   {
-    "id": "case-temp",
-    "category": "温度类",
-    "inputText": "温度调到 42 度",
-    "expectedIntent": "SET_TEMP",
-    "riskLevel": "LOW",
-    "notes": "槽位 temperature=42"
+    "id": "case-standby-2",
+    "category": "关机",
+    "inputText": "关掉所有功能",
+    "expectedIntent": "STANDBY",
+    "riskLevel": "MEDIUM",
+    "notes": "整机待机"
   },
   {
-    "id": "case-chat",
-    "category": "闲聊类",
-    "inputText": "给我讲个笑话",
+    "id": "case-timer-10",
+    "category": "定时",
+    "inputText": "定时 10 分钟后关闭",
+    "expectedIntent": "SET_TIMER",
+    "riskLevel": "MEDIUM",
+    "notes": "时间类控制"
+  },
+  {
+    "id": "case-timer-30",
+    "category": "定时",
+    "inputText": "半小时后自动关闭",
+    "expectedIntent": "SET_TIMER",
+    "riskLevel": "MEDIUM",
+    "notes": "时间类控制"
+  },
+  {
+    "id": "case-chat-joke",
+    "category": "闲聊",
+    "inputText": "讲个笑话",
     "expectedIntent": null,
     "riskLevel": "LOW",
-    "notes": "不应产生设备控制动作"
+    "notes": "不应产生设备动作"
+  },
+  {
+    "id": "case-chat-thanks",
+    "category": "闲聊",
+    "inputText": "谢谢你",
+    "expectedIntent": null,
+    "riskLevel": "LOW",
+    "notes": "不应产生设备动作"
+  },
+  {
+    "id": "case-knowledge-fault",
+    "category": "知识问答",
+    "inputText": "出现 E03 故障码怎么处理",
+    "expectedIntent": null,
+    "riskLevel": "LOW",
+    "notes": "应该走知识库或售后话术，不做设备控制"
+  },
+  {
+    "id": "case-knowledge-install",
+    "category": "知识问答",
+    "inputText": "这个浴霸怎么安装",
+    "expectedIntent": null,
+    "riskLevel": "LOW",
+    "notes": "安装咨询，不做设备控制"
+  },
+  {
+    "id": "case-multi-intent",
+    "category": "边界",
+    "inputText": "开灯然后开换气",
+    "expectedIntent": null,
+    "riskLevel": "MEDIUM",
+    "notes": "多意图，期望模型先澄清"
+  },
+  {
+    "id": "case-ambiguous",
+    "category": "边界",
+    "inputText": "有点冷也有点闷，先帮我处理一下",
+    "expectedIntent": null,
+    "riskLevel": "MEDIUM",
+    "notes": "缺少主动作"
+  },
+  {
+    "id": "case-proactive-like",
+    "category": "边界",
+    "inputText": "我快洗澡了，先帮我准备一下",
+    "expectedIntent": null,
+    "riskLevel": "MEDIUM",
+    "notes": "偏场景描述，不是明确控制"
   }
 ]

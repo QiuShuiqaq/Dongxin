@@ -13,18 +13,51 @@ export interface ModelCallOutput {
   aiResult: AiResult;
   latencyMs: number;
   rawResponse: unknown;
+  usage: ModelTokenUsage;
+}
+
+export interface ModelTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costCny: number | null;
+  isEstimated: boolean;
+}
+
+interface RawProviderOutput {
+  rawResponse: unknown;
+  usage: Omit<ModelTokenUsage, 'costCny'>;
 }
 
 export async function callModel(input: ModelCallInput): Promise<ModelCallOutput> {
   const started = performance.now();
-  const rawResponse =
-    input.provider.type === 'MOCK' ? mockModelResponse(input.inputText) : await callOpenAICompatible(input);
-  const aiResult = parseAiResult(rawResponse);
+  const providerOutput =
+    input.provider.type === 'MOCK'
+      ? buildMockProviderOutput(input.inputText)
+      : await callOpenAICompatible(input);
+  const aiResult = parseAiResult(providerOutput.rawResponse);
 
   return {
     aiResult,
     latencyMs: Math.round(performance.now() - started),
-    rawResponse
+    rawResponse: providerOutput.rawResponse,
+    usage: {
+      ...providerOutput.usage,
+      costCny: calculateCostCny(input.provider, providerOutput.usage)
+    }
+  };
+}
+
+function buildMockProviderOutput(inputText: string): RawProviderOutput {
+  const rawResponse = mockModelResponse(inputText);
+  return {
+    rawResponse,
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      isEstimated: false
+    }
   };
 }
 
@@ -114,7 +147,7 @@ function mockModelResponse(inputText: string): AiResult {
   };
 }
 
-async function callOpenAICompatible(input: ModelCallInput): Promise<unknown> {
+async function callOpenAICompatible(input: ModelCallInput): Promise<RawProviderOutput> {
   const apiKey = input.provider.apiKeyEnv ? process.env[input.provider.apiKeyEnv] : undefined;
   if (!apiKey) {
     throw new Error(`Missing API key env: ${input.provider.apiKeyEnv || 'undefined'}`);
@@ -126,6 +159,7 @@ async function callOpenAICompatible(input: ModelCallInput): Promise<unknown> {
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), input.provider.timeoutMs);
+  const maxOutputTokens = Math.max(48, Math.min(256, input.provider.maxOutputTokens || 128));
 
   try {
     const response = await fetch(`${input.provider.baseUrl.replace(/\/$/, '')}/chat/completions`, {
@@ -138,7 +172,6 @@ async function callOpenAICompatible(input: ModelCallInput): Promise<unknown> {
       body: JSON.stringify({
         model: input.provider.model,
         temperature: 0,
-        response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: input.prompt.systemPrompt },
           {
@@ -148,7 +181,10 @@ async function callOpenAICompatible(input: ModelCallInput): Promise<unknown> {
               deviceState: input.deviceState
             })
           }
-        ]
+        ],
+        ...(input.provider.requestBody ?? {}),
+        max_tokens: maxOutputTokens,
+        response_format: { type: 'json_object' }
       })
     });
 
@@ -163,7 +199,11 @@ async function callOpenAICompatible(input: ModelCallInput): Promise<unknown> {
       throw new Error(`Provider ${input.provider.id} returned empty content`);
     }
 
-    return typeof content === 'string' ? JSON.parse(content) : content;
+    const rawResponse = typeof content === 'string' ? JSON.parse(content) : content;
+    return {
+      rawResponse,
+      usage: normalizeUsage(payload?.usage, input, rawResponse)
+    };
   } finally {
     clearTimeout(timeout);
   }
@@ -191,4 +231,62 @@ function control(intent: AiResult['intent'], confidence: number, speak: string):
     requiresConfirm: false,
     speak
   };
+}
+
+function normalizeUsage(
+  usage: unknown,
+  input: ModelCallInput,
+  rawResponse: unknown
+): Omit<ModelTokenUsage, 'costCny'> {
+  if (usage && typeof usage === 'object') {
+    const candidate = usage as Record<string, unknown>;
+    const inputTokens = readTokenNumber(candidate, ['prompt_tokens', 'input_tokens']);
+    const outputTokens = readTokenNumber(candidate, ['completion_tokens', 'output_tokens']);
+    const totalTokens = readTokenNumber(candidate, ['total_tokens']);
+
+    if (typeof inputTokens === 'number' && typeof outputTokens === 'number') {
+      return {
+        inputTokens,
+        outputTokens,
+        totalTokens: typeof totalTokens === 'number' ? totalTokens : inputTokens + outputTokens,
+        isEstimated: false
+      };
+    }
+  }
+
+  const inputTokens = estimateTokens(`${input.prompt.systemPrompt}\n${input.inputText}`);
+  const outputTokens = estimateTokens(JSON.stringify(rawResponse));
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    isEstimated: true
+  };
+}
+
+function readTokenNumber(payload: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function estimateTokens(text: string): number {
+  return Math.max(1, Math.ceil(text.length / 2));
+}
+
+function calculateCostCny(
+  provider: ModelProvider,
+  usage: Omit<ModelTokenUsage, 'costCny'>
+): number | null {
+  const inputPrice = provider.inputPricePerMTokens;
+  const outputPrice = provider.outputPricePerMTokens;
+  if (typeof inputPrice !== 'number' || typeof outputPrice !== 'number') {
+    return null;
+  }
+
+  return (usage.inputTokens * inputPrice + usage.outputTokens * outputPrice) / 1_000_000;
 }

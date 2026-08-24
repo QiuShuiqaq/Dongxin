@@ -1,4 +1,4 @@
-import type { ModelProvider, ProviderSecretStatus } from '@dongxin/shared';
+import type { ModelProvider, ProviderSecretStatus, ProviderServiceType } from '@dongxin/shared';
 import { SaveProviderApiKeyRequestSchema } from '@dongxin/shared';
 import { z } from 'zod';
 import { clearLocalEnvValue, isEnvConfigured, setLocalEnvValue } from '../envStore.js';
@@ -41,6 +41,22 @@ export function findProvider(providers: ModelProvider[], providerId: string): Mo
   const provider = providers.find((item) => item.id === providerId);
   if (!provider) {
     throw new ApiError(404, 'PROVIDER_NOT_FOUND', `Unknown provider: ${providerId}`);
+  }
+  return provider;
+}
+
+export function findProviderForService(
+  providers: ModelProvider[],
+  providerId: string,
+  serviceType: ProviderServiceType
+): ModelProvider {
+  const provider = findProvider(providers, providerId);
+  if (provider.serviceType !== serviceType) {
+    throw new ApiError(
+      422,
+      'PROVIDER_SERVICE_MISMATCH',
+      `${provider.name} is configured for ${provider.serviceType}, not ${serviceType}`
+    );
   }
   return provider;
 }

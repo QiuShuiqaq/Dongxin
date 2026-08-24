@@ -17,7 +17,7 @@
 小程序默认 API 地址在 `apps/miniapp/app.js`：
 
 ```js
-apiBaseUrl: 'http://127.0.0.1:3001'
+apiBaseUrl: 'http://127.0.0.1:3077'
 ```
 
 微信开发者工具本地预览时可以使用该地址。真机演示时需要改成局域网 IP、测试域名或正式 HTTPS 域名。

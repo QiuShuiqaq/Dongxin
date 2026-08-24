@@ -1,5 +1,5 @@
 const DEFAULT_DEVICE_ID = 'demo-bath-heater-001';
-const DEFAULT_PROVIDER_ID = 'mock-local';
+const DEFAULT_PROVIDER_ID = 'aliyun-qwen3-7-flash';
 const DEFAULT_PROMPT_ID = 'bath-heater-intent-v1';
 
 const localState = {
@@ -29,9 +29,9 @@ let localProactiveSettings = {
 function getBaseUrl() {
   try {
     const app = getApp();
-    return app.globalData.apiBaseUrl || 'http://127.0.0.1:3001';
+    return app.globalData.apiBaseUrl || 'http://127.0.0.1:3077';
   } catch (error) {
-    return 'http://127.0.0.1:3001';
+    return 'http://127.0.0.1:3077';
   }
 }
 
@@ -261,4 +261,3 @@ module.exports = {
   triggerProactiveEvent,
   updateProactiveSettings
 };
-

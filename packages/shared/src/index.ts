@@ -54,20 +54,126 @@ export const SafetyDecisionSchema = z.enum([
 ]);
 export type SafetyDecision = z.infer<typeof SafetyDecisionSchema>;
 
+export const ProviderServiceTypeSchema = z.enum(['LLM', 'ASR', 'TTS']);
+export type ProviderServiceType = z.infer<typeof ProviderServiceTypeSchema>;
+
+export const ProviderProtocolSchema = z.enum(['OPENAI_COMPATIBLE', 'HTTP_JSON']);
+export type ProviderProtocol = z.infer<typeof ProviderProtocolSchema>;
+
+export const AsrBillingModeSchema = z.enum(['PER_REQUEST', 'PER_MINUTE', 'PER_HOUR', 'NONE']);
+export type AsrBillingMode = z.infer<typeof AsrBillingModeSchema>;
+
 export const ModelProviderSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   type: z.enum(['MOCK', 'OPENAI_COMPATIBLE']),
+  serviceType: ProviderServiceTypeSchema.default('LLM'),
+  protocol: ProviderProtocolSchema.default('OPENAI_COMPATIBLE'),
   enabled: z.boolean(),
   model: z.string().min(1),
   baseUrl: z.string().nullable().optional(),
   apiKeyEnv: z.string().nullable().optional(),
+  apiKeyUrl: z.string().url().nullable().optional(),
   timeoutMs: z.number().int().positive().default(8000),
+  maxOutputTokens: z.number().int().positive().max(1024).default(128),
   inputPricePerMTokens: z.number().nullable().optional(),
   outputPricePerMTokens: z.number().nullable().optional(),
+  billingMode: AsrBillingModeSchema.optional(),
+  pricePerRequestCny: z.number().nonnegative().optional(),
+  pricePerMinuteCny: z.number().nonnegative().optional(),
+  pricePerHourCny: z.number().nonnegative().optional(),
+  packageCalls: z.number().int().positive().optional(),
+  packagePriceCny: z.number().nonnegative().optional(),
+  averageSecondsPerRequest: z.number().positive().optional(),
+  voice: z.string().optional(),
+  audioFormat: z.string().optional(),
+  responseTextPath: z.string().optional(),
+  responseAudioPath: z.string().optional(),
+  responseMimeTypePath: z.string().optional(),
+  requestBody: z.record(z.string(), z.unknown()).optional(),
   notes: z.string().optional()
 });
 export type ModelProvider = z.infer<typeof ModelProviderSchema>;
+
+export const ModelTokenUsageSchema = z.object({
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
+  costCny: z.number().nullable(),
+  isEstimated: z.boolean()
+});
+export type ModelTokenUsage = z.infer<typeof ModelTokenUsageSchema>;
+
+export const AsrOfflinePlanSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  architecture: z.enum(['HYBRID_CLOUD_ASR', 'LOCAL_GENERAL_ASR']).default('HYBRID_CLOUD_ASR'),
+  chipName: z.string().min(1),
+  recognitionType: z.enum(['KEYWORD', 'GENERAL']),
+  unitHardwareDeltaCny: z.number().nonnegative(),
+  annualServiceCnyPerDevice: z.number().nonnegative(),
+  expectedOfflineRatePercent: z.number().min(0).max(100),
+  supportsFreeSpeech: z.boolean(),
+  maturity: z.enum(['MATURE', 'VALIDATING', 'HIGH_RISK']),
+  sourceUrl: z.string().url().nullable().optional(),
+  notes: z.string().default('')
+});
+export type AsrOfflinePlan = z.infer<typeof AsrOfflinePlanSchema>;
+
+export const ProductionCostSettingsSchema = z.object({
+  yearDays: z.number().int().positive().default(365),
+  routing: z.object({
+    offlineRatePercent: z.number().min(0).max(100),
+    ruleMatchRatePercent: z.number().min(0).max(100),
+    knowledgeHitRatePercent: z.number().min(0).max(100).default(50),
+    ttsResponseRatePercent: z.number().min(0).max(100),
+    llmTtsResponseRatePercent: z.number().min(0).max(100).default(80),
+    ttsCacheHitRatePercent: z.number().min(0).max(100)
+  }),
+  development: z.object({
+    llmCny: z.number().nonnegative(),
+    asrCny: z.number().nonnegative(),
+    ttsCny: z.number().nonnegative(),
+    serverCny: z.number().nonnegative(),
+    miniProgramCny: z.number().nonnegative(),
+    hardwareCny: z.number().nonnegative(),
+    otherCny: z.number().nonnegative()
+  }),
+  asr: z.object({
+    providerName: z.string().min(1),
+    pricePerRequestCny: z.number().nonnegative(),
+    averageSecondsPerRequest: z.number().positive(),
+    billingMode: AsrBillingModeSchema.default('PER_REQUEST'),
+    pricePerMinuteCny: z.number().nonnegative().default(0),
+    pricePerHourCny: z.number().nonnegative().default(0),
+    modelName: z.string().default(''),
+    sourceUrl: z.string().url().nullable().optional(),
+    activeOfflinePlanId: z.string().default('esp32-c3-offline-keyword'),
+    offlinePlans: z.array(AsrOfflinePlanSchema).default([])
+  }),
+  llm: z.object({
+    providerId: z.string().min(1),
+    modelName: z.string().min(1),
+    inputPricePerMTokens: z.number().nonnegative(),
+    outputPricePerMTokens: z.number().nonnegative(),
+    averageInputTokens: z.number().int().nonnegative(),
+    averageOutputTokens: z.number().int().nonnegative()
+  }),
+  tts: z.object({
+    providerName: z.string().min(1),
+    packageCalls: z.number().int().positive(),
+    packagePriceCny: z.number().nonnegative()
+  }),
+  fixedAnnual: z.object({
+    serverCny: z.number().nonnegative(),
+    domainSslCny: z.number().nonnegative(),
+    databaseCny: z.number().nonnegative(),
+    miniProgramCny: z.number().nonnegative(),
+    storageCny: z.number().nonnegative()
+  }),
+  updatedAt: z.string()
+});
+export type ProductionCostSettings = z.infer<typeof ProductionCostSettingsSchema>;
 
 export const ProviderSecretStatusSchema = z.object({
   providerId: z.string().min(1),
@@ -100,6 +206,52 @@ export const TestCaseSchema = z.object({
   notes: z.string().optional()
 });
 export type TestCase = z.infer<typeof TestCaseSchema>;
+
+export const TestSetKindSchema = z.enum(['STANDARD', 'SIMPLE', 'COMPLEX', 'CUSTOM']);
+export type TestSetKind = z.infer<typeof TestSetKindSchema>;
+
+export const TestSetSourceSchema = z.enum(['SYSTEM', 'MANUAL', 'MD_IMPORT']);
+export type TestSetSource = z.infer<typeof TestSetSourceSchema>;
+
+export const TestSetSummarySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  kind: TestSetKindSchema,
+  description: z.string().default(''),
+  source: TestSetSourceSchema,
+  isReadOnly: z.boolean().default(false),
+  caseCount: z.number().int().nonnegative(),
+  categoryBreakdown: z.record(z.string(), z.number().int().nonnegative()).default({}),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+export type TestSetSummary = z.infer<typeof TestSetSummarySchema>;
+
+export const TestSetSchema = TestSetSummarySchema.extend({
+  cases: z.array(TestCaseSchema)
+});
+export type TestSet = z.infer<typeof TestSetSchema>;
+
+export const CreateTestSetRequestSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().default(''),
+  kind: TestSetKindSchema.default('CUSTOM')
+});
+export type CreateTestSetRequest = z.infer<typeof CreateTestSetRequestSchema>;
+
+export const UpdateTestSetRequestSchema = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().optional()
+});
+export type UpdateTestSetRequest = z.infer<typeof UpdateTestSetRequestSchema>;
+
+export const ImportTestSetMarkdownRequestSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().default(''),
+  markdown: z.string().min(1),
+  kind: TestSetKindSchema.default('CUSTOM')
+});
+export type ImportTestSetMarkdownRequest = z.infer<typeof ImportTestSetMarkdownRequestSchema>;
 
 export const DeviceStateSchema = z.object({
   isOnline: z.boolean(),
@@ -138,6 +290,43 @@ export const SafetyResultSchema = z.object({
 });
 export type SafetyResult = z.infer<typeof SafetyResultSchema>;
 
+export const EvaluationProviderSummarySchema = z.object({
+  providerId: z.string().min(1),
+  providerName: z.string().min(1),
+  total: z.number().int().nonnegative(),
+  passed: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  accuracy: z.number().min(0).max(1),
+  jsonValid: z.number().int().nonnegative(),
+  clarifyCount: z.number().int().nonnegative(),
+  rejectCount: z.number().int().nonnegative(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
+  costCny: z.number().nonnegative(),
+  averageLatencyMs: z.number().nonnegative(),
+  p95LatencyMs: z.number().nonnegative()
+});
+export type EvaluationProviderSummary = z.infer<typeof EvaluationProviderSummarySchema>;
+
+export const EvaluationSummarySchema = z.object({
+  total: z.number().int().nonnegative(),
+  passed: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  jsonValid: z.number().int().nonnegative(),
+  clarifyCount: z.number().int().nonnegative(),
+  rejectCount: z.number().int().nonnegative(),
+  averageLatencyMs: z.number().nonnegative(),
+  p95LatencyMs: z.number().nonnegative(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
+  costCny: z.number().nonnegative(),
+  estimatedCostCny: z.number().nonnegative(),
+  providerSummaries: z.array(EvaluationProviderSummarySchema)
+});
+export type EvaluationSummary = z.infer<typeof EvaluationSummarySchema>;
+
 export const EvaluationItemSchema = z.object({
   testCaseId: z.string(),
   providerId: z.string(),
@@ -147,22 +336,21 @@ export const EvaluationItemSchema = z.object({
   safetyResult: SafetyResultSchema.nullable(),
   isMatch: z.boolean(),
   latencyMs: z.number(),
+  usage: ModelTokenUsageSchema.nullable(),
   error: z.string().nullable()
 });
 export type EvaluationItem = z.infer<typeof EvaluationItemSchema>;
 
 export const EvaluationRunSchema = z.object({
   id: z.string(),
+  source: z.literal('EVALUATION').default('EVALUATION'),
   promptId: z.string(),
+  testSetId: z.string(),
+  testSetName: z.string(),
   providerIds: z.array(z.string()),
   startedAt: z.string(),
   completedAt: z.string(),
-  summary: z.object({
-    total: z.number().int(),
-    passed: z.number().int(),
-    failed: z.number().int(),
-    averageLatencyMs: z.number()
-  }),
+  summary: EvaluationSummarySchema,
   items: z.array(EvaluationItemSchema)
 });
 export type EvaluationRun = z.infer<typeof EvaluationRunSchema>;
@@ -227,6 +415,122 @@ export const DeviceCommandRecordSchema = z.object({
 });
 export type DeviceCommandRecord = z.infer<typeof DeviceCommandRecordSchema>;
 
+export const DeviceActionCodeSchema = z.enum([
+  'light',
+  'heater',
+  'ventilation',
+  'fan',
+  'swing',
+  'dry',
+  'standby',
+  'temperature',
+  'timer',
+  'network'
+]);
+export type DeviceActionCode = z.infer<typeof DeviceActionCodeSchema>;
+
+export const DeviceActionSchema = z.object({
+  commandId: z.string().optional(),
+  code: DeviceActionCodeSchema,
+  value: z.string().min(1),
+  durationMinutes: z.number().int().positive().max(120).nullable().optional(),
+  targetTemperature: z.number().int().min(30).max(45).nullable().optional()
+});
+export type DeviceAction = z.infer<typeof DeviceActionSchema>;
+
+export const DeviceCloudStateSchema = z.object({
+  isOnline: z.boolean().optional(),
+  power: z.enum(['on', 'off']).optional(),
+  light: z.enum(['on', 'off']).optional(),
+  heater: z.enum(['off', 'weak', 'strong']).optional(),
+  ventilation: z.enum(['on', 'off']).optional(),
+  fan: z.enum(['on', 'off']).optional(),
+  swing: z.enum(['on', 'off']).optional(),
+  dry: z.enum(['on', 'off']).optional(),
+  targetTemperature: z.number().int().min(0).max(80).nullable().optional(),
+  ambientTemperature: z.number().nullable().optional(),
+  humidity: z.number().min(0).max(100).nullable().optional(),
+  hasOccupancy: z.boolean().nullable().optional(),
+  faultCode: z.string().nullable().optional(),
+  runningMinutes: z.number().int().min(0).nullable().optional()
+});
+export type DeviceCloudState = z.infer<typeof DeviceCloudStateSchema>;
+
+export const DeviceRegisterRequestSchema = z.object({
+  deviceId: z.string().min(1),
+  model: z.string().min(1),
+  firmwareVersion: z.string().nullable().optional(),
+  protocolVersion: z.string().min(1).default('0.1'),
+  capabilities: z.record(z.string(), z.boolean()).default({})
+});
+export type DeviceRegisterRequest = z.infer<typeof DeviceRegisterRequestSchema>;
+
+export const DeviceHeartbeatRequestSchema = z.object({
+  deviceId: z.string().min(1),
+  firmwareVersion: z.string().nullable().optional(),
+  network: z
+    .object({
+      rssi: z.number().nullable().optional(),
+      ip: z.string().nullable().optional()
+    })
+    .optional()
+});
+export type DeviceHeartbeatRequest = z.infer<typeof DeviceHeartbeatRequestSchema>;
+
+export const DeviceStateReportRequestSchema = z.object({
+  deviceId: z.string().min(1),
+  reportedAt: z.string().optional(),
+  state: DeviceCloudStateSchema
+});
+export type DeviceStateReportRequest = z.infer<typeof DeviceStateReportRequestSchema>;
+
+export const DeviceAccessEventTypeSchema = z.enum([
+  'OCCUPANCY_ENTER',
+  'OCCUPANCY_LEAVE',
+  'OCCUPANCY_STAY',
+  'LOW_TEMPERATURE',
+  'HIGH_HUMIDITY',
+  'LONG_RUNNING',
+  'FAULT',
+  'COMMAND_RESULT'
+]);
+export type DeviceAccessEventType = z.infer<typeof DeviceAccessEventTypeSchema>;
+
+export const DeviceAccessEventRequestSchema = z.object({
+  deviceId: z.string().min(1),
+  eventId: z.string().min(1).optional(),
+  eventType: DeviceAccessEventTypeSchema,
+  occurredAt: z.string().optional(),
+  payload: z.record(z.string(), z.unknown()).default({})
+});
+export type DeviceAccessEventRequest = z.infer<typeof DeviceAccessEventRequestSchema>;
+
+export const DeviceAccessVoiceTurnRequestSchema = z.object({
+  deviceId: z.string().min(1),
+  sessionId: z.string().min(1).optional(),
+  text: z.string().trim().min(1),
+  asrConfidence: z.number().min(0).max(1).nullable().optional(),
+  confirmToken: z.string().min(1).optional(),
+  reportedState: DeviceCloudStateSchema.optional()
+});
+export type DeviceAccessVoiceTurnRequest = z.infer<typeof DeviceAccessVoiceTurnRequestSchema>;
+
+export const DeviceCommandResultRequestSchema = z.object({
+  deviceId: z.string().min(1),
+  commandId: z.string().min(1),
+  status: z.enum(['success', 'failed', 'rejected', 'timeout']),
+  executedAt: z.string().optional(),
+  mcuFrame: z.string().optional(),
+  state: DeviceCloudStateSchema.optional(),
+  error: z
+    .object({
+      code: z.string().min(1),
+      message: z.string().min(1)
+    })
+    .optional()
+});
+export type DeviceCommandResultRequest = z.infer<typeof DeviceCommandResultRequestSchema>;
+
 export const VoiceTurnRequestSchema = z.object({
   deviceId: z.string().min(1).default('demo-bath-heater-001'),
   sessionId: z.string().min(1).optional(),
@@ -247,6 +551,116 @@ export const VoiceTurnResponseSchema = z.object({
   commandRecord: DeviceCommandRecordSchema.nullable()
 });
 export type VoiceTurnResponse = z.infer<typeof VoiceTurnResponseSchema>;
+
+export const VoicePipelineInputSourceSchema = z.enum([
+  'TEXT_SIMULATION',
+  'BROWSER_AUDIO',
+  'DEVICE_AUDIO',
+  'DEVICE_TEXT'
+]);
+export type VoicePipelineInputSource = z.infer<typeof VoicePipelineInputSourceSchema>;
+
+export const VoicePipelineRouteSchema = z.enum([
+  'OFFLINE',
+  'ONLINE_RULE',
+  'KNOWLEDGE',
+  'LLM',
+  'UNRESOLVED'
+]);
+export type VoicePipelineRoute = z.infer<typeof VoicePipelineRouteSchema>;
+
+export const VoicePipelineStageKeySchema = z.enum([
+  'INPUT',
+  'WAKE_WORD',
+  'OFFLINE_INTENT',
+  'ASR',
+  'ONLINE_RULE',
+  'KNOWLEDGE',
+  'LLM',
+  'SAFETY',
+  'TTS',
+  'DEVICE'
+]);
+export type VoicePipelineStageKey = z.infer<typeof VoicePipelineStageKeySchema>;
+
+export const VoicePipelineStageStatusSchema = z.enum([
+  'COMPLETED',
+  'MATCHED',
+  'SKIPPED',
+  'NOT_CONFIGURED',
+  'FAILED'
+]);
+export type VoicePipelineStageStatus = z.infer<typeof VoicePipelineStageStatusSchema>;
+
+export const VoicePipelineStageSchema = z.object({
+  key: VoicePipelineStageKeySchema,
+  label: z.string(),
+  status: VoicePipelineStageStatusSchema,
+  source: z.string().nullable(),
+  result: z.string().default(''),
+  detail: z.record(z.string(), z.unknown()).default({}),
+  latencyMs: z.number().nonnegative(),
+  costCny: z.number().nonnegative(),
+  error: z.string().nullable()
+});
+export type VoicePipelineStage = z.infer<typeof VoicePipelineStageSchema>;
+
+export const VoicePipelineCostSchema = z.object({
+  asrCny: z.number().nonnegative(),
+  llmCny: z.number().nonnegative(),
+  ttsCny: z.number().nonnegative(),
+  totalCny: z.number().nonnegative(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
+  isEstimated: z.boolean()
+});
+export type VoicePipelineCost = z.infer<typeof VoicePipelineCostSchema>;
+
+export const VoicePipelineRequestSchema = z
+  .object({
+    deviceId: z.string().min(1).default('demo-bath-heater-001'),
+    inputSource: VoicePipelineInputSourceSchema.default('TEXT_SIMULATION'),
+    text: z.string().trim().optional(),
+    audioBase64: z.string().min(1).optional(),
+    mimeType: z.string().min(1).default('audio/webm'),
+    providerId: z.string().min(1).optional(),
+    asrProviderId: z.string().min(1).optional(),
+    ttsProviderId: z.string().min(1).optional(),
+    promptId: z.string().min(1).optional(),
+    applyToDevice: z.boolean().default(false),
+    simulateOffline: z.enum(['AUTO', 'HIT', 'MISS']).default('AUTO')
+  })
+  .superRefine((value, context) => {
+    const hasText = Boolean(value.text?.trim());
+    const hasAudio = Boolean(value.audioBase64);
+    if (!hasText && !hasAudio) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['text'],
+        message: 'text or audioBase64 is required'
+      });
+    }
+  });
+export type VoicePipelineRequest = z.infer<typeof VoicePipelineRequestSchema>;
+
+export const VoicePipelineResponseSchema = z.object({
+  sessionId: z.string(),
+  inputSource: VoicePipelineInputSourceSchema,
+  transcript: z.string().nullable(),
+  replyText: z.string(),
+  route: VoicePipelineRouteSchema,
+  stages: z.array(VoicePipelineStageSchema),
+  aiResult: AiResultSchema,
+  safetyResult: SafetyResultSchema,
+  deviceState: DeviceStateSchema,
+  commandRecord: DeviceCommandRecordSchema.nullable(),
+  totalLatencyMs: z.number().nonnegative(),
+  cost: VoicePipelineCostSchema,
+  ttsAudioBase64: z.string().nullable(),
+  ttsAudioMimeType: z.string().nullable()
+});
+export type VoicePipelineResponse = z.infer<typeof VoicePipelineResponseSchema>;
 
 export const KnowledgeCategorySchema = z.enum([
   'PRODUCT',
