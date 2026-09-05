@@ -21,7 +21,9 @@ npm run dev
 默认地址：
 
 - 前端：http://localhost:5173
-- 后端：http://localhost:3077/api/health
+- 后端：http://localhost:127.0.0.1:3077/api/health
+
+设备联调时，后端默认监听 `0.0.0.0:3077`。固件中的 `DX_GATEWAY_BASE_URL` 应填写运行后端电脑的局域网 IPv4 地址，例如 `http://192.168.1.100:3077`，不能填写 `localhost` 或 `127.0.0.1`。
 
 ## 本地 API Key
 

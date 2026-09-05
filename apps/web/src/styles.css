@@ -333,7 +333,7 @@ body {
   height: 6px;
   border-radius: 50%;
   background: #1677ff;
-  content: '';
+  content: "";
 }
 
 .kpi-card {
@@ -496,6 +496,157 @@ body {
   height: 100%;
 }
 
+.test-workbench-toolbar .ant-card-body {
+  padding-bottom: 12px;
+}
+
+.ai-link-workbench {
+  display: grid;
+  grid-template-columns: 430px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.test-control-panel {
+  position: sticky;
+  top: 12px;
+}
+
+.test-control-panel .ant-table-cell {
+  vertical-align: top;
+}
+
+.pipeline-board {
+  min-width: 0;
+}
+
+.batch-route-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.batch-route-row {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.batch-route-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.branch-flow-wrap {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.branch-flow-canvas {
+  display: grid;
+  grid-template-areas:
+    ". . offlineDevice . . . . ."
+    "input offline . . ruleClassify . safety device"
+    ". . asr rule . llmClassify . tts"
+    ". . . . llm . . .";
+  grid-template-columns: repeat(8, minmax(146px, 1fr));
+  grid-template-rows: repeat(4, auto);
+  gap: 12px;
+  min-width: 1160px;
+  padding: 4px;
+}
+
+.branch-node {
+  display: grid;
+  gap: 6px;
+  min-height: 136px;
+  padding: 12px;
+  border: 1px solid #dde4ec;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #273244;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.branch-node:hover,
+.branch-node-selected {
+  border-color: #1677ff;
+  box-shadow: 0 0 0 3px rgb(22 119 255 / 10%);
+}
+
+.branch-node-selected {
+  transform: translateY(-1px);
+}
+
+.branch-node-title {
+  color: #172033;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.branch-node-desc,
+.branch-node-result {
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.branch-node-result {
+  display: -webkit-box;
+  min-height: 34px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: #425066;
+}
+
+.branch-node-branch {
+  width: fit-content;
+  padding: 2px 6px;
+  border: 1px solid #d8e1ea;
+  border-radius: 4px;
+  background: #f7f9fb;
+  color: #4b5563;
+  font-size: 12px;
+}
+
+.branch-node-idle,
+.branch-node-skipped {
+  border-style: dashed;
+  background: #f7f8fa;
+}
+
+.branch-node-idle {
+  opacity: 0.72;
+}
+
+.branch-node-completed {
+  border-color: #b7d7c0;
+  background: #f5fbf6;
+}
+
+.branch-node-matched {
+  border-color: #8dbcf0;
+  background: #f1f7ff;
+}
+
+.branch-node-not-configured {
+  border-color: #edc27a;
+  background: #fffaf0;
+}
+
+.branch-node-failed {
+  border-color: #e6a3a3;
+  background: #fff5f5;
+}
+
 .voice-stage-list {
   display: grid;
   gap: 10px;
@@ -572,7 +723,10 @@ body {
   border: 1px solid #dfe5ec;
   border-radius: 6px;
   background: #fbfcfd;
-  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
 }
 
 .pipeline-flow-node .ant-typography {
@@ -696,6 +850,18 @@ body {
 
   .comparison-metrics-strip {
     grid-template-columns: repeat(5, minmax(220px, 1fr));
+  }
+
+  .ai-link-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .test-control-panel {
+    position: static;
+  }
+
+  .batch-route-grid {
+    grid-template-columns: 1fr;
   }
 
   .flow-strip {

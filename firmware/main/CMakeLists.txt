@@ -1,0 +1,14 @@
+# 东信智能浴霸AI联网版 - 主程序构建配置
+idf_component_register(
+    SRCS
+        "app_main.c"
+        "board_support.c"
+        "board_profile.c"
+        "wifi_manager.c"
+        "cloud_agent.c"
+        "uart_bridge.c"
+        "voice_engine.c"
+        "device_state.c"
+    INCLUDE_DIRS "."
+    REQUIRES esp_wifi esp_event esp_netif esp_http_client esp_driver_uart esp_driver_gpio esp_driver_i2c esp_driver_i2s esp_driver_spi esp_lcd json nvs_flash
+)
