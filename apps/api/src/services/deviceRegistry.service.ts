@@ -2,9 +2,10 @@ import type { DeviceCommandRecord, DeviceEvent, DeviceProfile, DeviceState } fro
 import { DeviceEventTypeSchema } from '@dongxin/shared';
 import { z } from 'zod';
 import { ApiError } from '../http/apiError.js';
-import { DEFAULT_DEVICE_ID, appendDeviceCommand, appendDeviceEvent, getDeviceProfile, listDeviceProfiles, patchDeviceCommand, saveDeviceProfiles } from '../repositories/system.repository.js';
+import { DEFAULT_DEVICE_ID, appendDeviceCommand, appendDeviceEvent, getDeviceProfile, listDeviceCommands, listDeviceProfiles, patchDeviceCommand, saveDeviceProfiles } from '../repositories/system.repository.js';
 import { getCurrentDeviceState, patchCurrentDeviceState, executeDeviceCommand } from './device.service.js';
 import { appendLog } from './log.service.js';
+import { assertDeviceIntentSupported } from './hardwareConfig.service.js';
 
 export const DeviceEventRequestSchema = z.object({
   deviceId: z.string().min(1).default(DEFAULT_DEVICE_ID),
@@ -53,7 +54,8 @@ export async function executeCommandForDevice(
   deviceId: string,
   command: DeviceCommandRecord
 ): Promise<{ state: DeviceState; command: DeviceCommandRecord }> {
-  void deviceId;
+  const device = await getDevice(deviceId);
+  await assertDeviceIntentSupported(device.model, command.intent);
   const state = executeDeviceCommand(command.intent, command.slots);
   const nextCommand = await patchDeviceCommand(command.id, {
     status: 'APPLIED',
@@ -77,7 +79,14 @@ export async function executeCommandForDevice(
 }
 
 export async function queueDeviceCommand(command: Omit<DeviceCommandRecord, 'id' | 'createdAt'>): Promise<DeviceCommandRecord> {
+  const device = await getDevice(command.deviceId);
+  await assertDeviceIntentSupported(device.model, command.intent);
   return appendDeviceCommand(command);
+}
+
+export async function listCommandsForDevice(deviceId: string): Promise<DeviceCommandRecord[]> {
+  const commands = await listDeviceCommands();
+  return commands.filter((command) => command.deviceId === deviceId);
 }
 
 function extractStatePatch(payload: Record<string, unknown>): Partial<DeviceState> {

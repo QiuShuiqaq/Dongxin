@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 import { z } from 'zod';
 import { ApiError, errorBody } from './http/apiError.js';
 import { registerRoutes } from './routes/index.js';
+import { startMqttGateway, stopMqttGateway } from './services/mqttGateway.service.js';
 
 export async function createServer() {
   const server = Fastify({
@@ -17,6 +18,13 @@ export async function createServer() {
   });
 
   await registerRoutes(server);
+
+  server.addHook('onReady', async () => {
+    startMqttGateway(server.log);
+  });
+  server.addHook('onClose', async () => {
+    await stopMqttGateway();
+  });
 
   server.setErrorHandler((error, _request, reply) => {
     const isValidationError = error instanceof z.ZodError;

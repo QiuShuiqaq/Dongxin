@@ -43,7 +43,7 @@ void device_state_init(void)
     }
 
     memset(&g_state, 0, sizeof(g_state));
-    g_state.target_temperature = 30;
+    g_state.target_temperature = 40;
     ESP_LOGI(TAG, "设备状态管理初始化完成");
 }
 

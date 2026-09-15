@@ -4,10 +4,10 @@ import { readJsonFile, writeJsonFile } from '../storage.js';
 
 const defaultAsrOfflinePlans: ProductionCostSettings['asr']['offlinePlans'] = [
   {
-    id: 'esp32-c3-offline-keyword',
-    name: 'ESP32-C3 固定指令 + 云端 ASR',
+    id: 'esp32-c3-ci1302',
+    name: 'ESP32-C3 + CI1302 + 3 x PCF8574',
     architecture: 'HYBRID_CLOUD_ASR',
-    chipName: 'ESP32-C3 + ESP-SR MultiNet',
+    chipName: 'ESP32-C3 + CI1302 + 3 x PCF8574',
     recognitionType: 'KEYWORD',
     unitHardwareDeltaCny: 0,
     annualServiceCnyPerDevice: 0,
@@ -15,21 +15,23 @@ const defaultAsrOfflinePlans: ProductionCostSettings['asr']['offlinePlans'] = [
     supportsFreeSpeech: false,
     maturity: 'MATURE',
     sourceUrl: null,
-    notes: '只识别唤醒词和预置浴霸指令；复杂语句、闲聊和知识问答进入在线链路。'
+    notes:
+      '当前量产基线。CI1302负责唤醒、离线固定命令和音频前端；C3负责在线音频、MQTT、BLE本地控制与全部设备控制；三颗PCF8574提供24路低速IO。实际BOM由东信报价回填。'
   },
   {
-    id: 'esp32-s3-psram-offline-general',
-    name: 'ESP32-S3 + PSRAM 本地通用 ASR',
-    architecture: 'LOCAL_GENERAL_ASR',
-    chipName: 'ESP32-S3 + 8MB PSRAM',
-    recognitionType: 'GENERAL',
+    id: 'esp32-s3-ci1302',
+    name: 'ESP32-S3 + CI1302 + IO扩展',
+    architecture: 'HYBRID_CLOUD_ASR',
+    chipName: 'ESP32-S3-N16R8 + CI1302 + 3 x PCF8574',
+    recognitionType: 'KEYWORD',
     unitHardwareDeltaCny: 15,
     annualServiceCnyPerDevice: 0,
-    expectedOfflineRatePercent: 100,
-    supportsFreeSpeech: true,
+    expectedOfflineRatePercent: 80,
+    supportsFreeSpeech: false,
     maturity: 'VALIDATING',
     sourceUrl: null,
-    notes: '需要单独验证模型内存、浴室噪声、持续运行和量产固件稳定性；单台增量为当前可编辑估算。'
+    notes:
+      '保持同一CI语音和控制架构，仅在C3资源或稳定性不达标时对照。15元为旧估算占位，必须按真实BOM更新后再决策。'
   }
 ];
 
@@ -61,7 +63,7 @@ const defaultProductionCostSettings: ProductionCostSettings = {
     pricePerHourCny: 1.188,
     modelName: 'fun-asr-realtime',
     sourceUrl: null,
-    activeOfflinePlanId: 'esp32-c3-offline-keyword',
+    activeOfflinePlanId: 'esp32-c3-ci1302',
     offlinePlans: defaultAsrOfflinePlans
   },
   llm: {
@@ -97,7 +99,9 @@ export async function getProductionCostSettings(): Promise<ProductionCostSetting
     ...parsed,
     asr: {
       ...parsed.asr,
-      offlinePlans: parsed.asr.offlinePlans.length ? parsed.asr.offlinePlans : defaultAsrOfflinePlans
+      offlinePlans: parsed.asr.offlinePlans.length
+        ? parsed.asr.offlinePlans
+        : defaultAsrOfflinePlans
     }
   };
 }

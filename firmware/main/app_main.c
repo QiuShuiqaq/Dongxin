@@ -1,15 +1,15 @@
 /*
  * 东信高端智能浴霸（直流款·AI联网版）
- * WiFi联网模块固件 - ESP32-C3
+ * ESP32-C3/S3 staged firmware
  *
  * 系统链路：
- *   QiuAI AI Gateway ↔ WiFi模块(本固件) ↔ 浴霸主控板MCU
+ *   BLE/CI1302/cloud -> ESP32 command queue -> safety controller -> local HAL
  *
  * 本固件职责：
  *   1. WiFi连接与配网
- *   2. HTTPS+JSON 与 QiuAI AI Gateway 通信
- *   3. UART固定帧 与浴霸主控板通信
- *   4. 离线语音 + 联网AI对话（豆包SDK）
+ *   2. MQTT device messaging and synchronous online voice transport
+ *   3. C3 direct load control through PCF8574/GPIO/ADC
+ *   4. CI1302 offline voice and I2S online audio
  *   5. 设备状态上报与控制指令下发
  */
 
@@ -25,6 +25,9 @@
 #include "board_profile.h"
 #include "board_support.h"
 #include "cloud_agent.h"
+#include "command_queue.h"
+#include "device_controller.h"
+#include "mqtt_agent.h"
 #include "device_state.h"
 #include "uart_bridge.h"
 #include "voice_engine.h"
@@ -42,7 +45,7 @@ extern void wifi_manager_init(void);
 // 云端通信（HTTPS客户端 + JSON解析 + 设备注册/心跳/状态上报）
 extern void cloud_agent_init(void);
 
-// UART通信（与主控板，32字节固定帧协议）
+// 旧MCU UART兼容测试资产（32字节固定帧协议）
 extern void uart_bridge_init(void);
 
 // 语音交互（离线语音识别 + 联网AI对话 + TTS播报）
@@ -73,38 +76,45 @@ void app_main(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
-    ESP_LOGI(TAG, "[1/6] NVS 初始化完成");
+    ESP_LOGI(TAG, "[1/8] NVS 初始化完成");
 
     // 2. 板级总线和硬件自检
     ret = dx_board_support_init();
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "板级自检未完成: %s", esp_err_to_name(ret));
     }
-    ESP_LOGI(TAG, "[2/6] 板级自检完成");
+    ESP_LOGI(TAG, "[2/8] 板级自检完成");
 
     // 3. 设备状态管理初始化
     device_state_init();
-    ESP_LOGI(TAG, "[3/6] 设备状态管理初始化完成");
+    ESP_LOGI(TAG, "[3/8] 设备状态管理初始化完成");
 
-    // 4. UART通信初始化（当前仍等待东信最终引脚和帧参数）
+    // 4. C3直控内核与统一命令队列
+    ESP_ERROR_CHECK(device_controller_init());
+    ESP_ERROR_CHECK(command_queue_init());
+    ESP_LOGI(TAG, "[4/8] C3直控内核初始化完成");
+
+    // 5. 旧MCU UART仅保留兼容和协议回归
+    ESP_ERROR_CHECK(uart_bridge_run_self_test());
     uart_bridge_init();
-    ESP_LOGI(TAG, "[4/6] UART主控通信初始化完成");
+    ESP_LOGI(TAG, "[5/8] 旧MCU UART兼容层初始化完成");
 
-    // 5. WiFi连接初始化
+    // 6. WiFi连接初始化
 #if DX_ENABLE_WIFI
     wifi_manager_init();
 #else
     ESP_LOGI(TAG, "[5/6] WiFi管理已按配置关闭");
 #endif
-    ESP_LOGI(TAG, "[5/6] WiFi管理初始化完成");
+    ESP_LOGI(TAG, "[6/8] WiFi管理初始化完成");
 
-    // 6. 云端通信初始化
+    // 7. 云端通信初始化
     cloud_agent_init();
-    ESP_LOGI(TAG, "[6/6] 云端通信代理初始化完成");
+    mqtt_agent_init();
+    ESP_LOGI(TAG, "[7/8] 云端通信代理初始化完成");
 
-    // 7. 语音引擎初始化（音频引脚确认后实现）
+    // 8. 语音引擎初始化（CI1302 SDK映射确认后实现）
     voice_engine_init();
-    ESP_LOGI(TAG, "[7/7] 语音引擎初始化完成");
+    ESP_LOGI(TAG, "[8/8] 语音引擎初始化完成");
 
     ESP_LOGI(TAG, "========================================");
     ESP_LOGI(TAG, "  系统启动完成，进入主循环");

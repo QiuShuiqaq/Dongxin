@@ -1,0 +1,187 @@
+[
+  {
+    "id": "dx-ai-bath-c3-ci1302-v1",
+    "name": "东信 AI 浴霸 C3 + CI1302",
+    "model": "DX-AI-01",
+    "deviceModelAliases": [
+      "DX-AI-BATH-C3-SUPERMINI"
+    ],
+    "status": "ACTIVE",
+    "controller": "ESP32_C3",
+    "voiceProcessor": "CI1302",
+    "ioExpander": "3 x PCF8574",
+    "ioExpansion": {
+      "bus": "I2C",
+      "frequencyHz": 100000,
+      "type": "PCF8574",
+      "deviceCount": 3,
+      "addresses": [32, 33, 34],
+      "portCount": 24,
+      "outputActiveLevel": "LOW",
+      "loadEnableRequired": true
+    },
+    "voiceHardwareLink": {
+      "controlTransport": "UART0",
+      "controlBaudRate": 115200,
+      "audioTransport": "I2S_PCM",
+      "audioSampleRateHz": 16000,
+      "audioBitsPerSample": 16,
+      "audioChannels": 1,
+      "externalCrystalRequired": true
+    },
+    "localControllers": {
+      "transport": "ESP32_C3_BLE",
+      "wallPanelCount": 1,
+      "handheldRemoteCount": 1,
+      "maximumBondedControllers": 4,
+      "encryptedBondingRequired": true,
+      "commandAcknowledgementRequired": true
+    },
+    "flashSizeMB": 8,
+    "otaReserved": true,
+    "remoteTechnology": "ESP32_C3_BLE",
+    "capabilities": [
+      {
+        "key": "LIGHT",
+        "label": "照明",
+        "support": "ENABLED",
+        "interface": "PCF8574 U1 输出",
+        "notes": "C3 统一控制，功率驱动由东信设计"
+      },
+      {
+        "key": "NIGHT_LIGHT",
+        "label": "夜灯",
+        "support": "OPTIONAL",
+        "interface": "预留扩展输出",
+        "notes": "硬件是否装配待确认"
+      },
+      {
+        "key": "FAN",
+        "label": "吹风",
+        "support": "ENABLED",
+        "interface": "PCF8574 U1 输出",
+        "notes": "取暖互锁和关断散热由 C3 状态机管理"
+      },
+      {
+        "key": "VENTILATION",
+        "label": "换气",
+        "support": "ENABLED",
+        "interface": "PCF8574 U1 输出",
+        "notes": "与吹风的电机绕组互锁需按样板确认"
+      },
+      {
+        "key": "HEAT_WEAK",
+        "label": "弱暖",
+        "support": "ENABLED",
+        "interface": "PCF8574 U1 输出",
+        "notes": "软件只输出低压控制信号"
+      },
+      {
+        "key": "HEAT_STRONG",
+        "label": "强暖",
+        "support": "ENABLED",
+        "interface": "PCF8574 U1 输出",
+        "notes": "必须具备硬件温控器和保险丝保护"
+      },
+      {
+        "key": "SWING",
+        "label": "摆风",
+        "support": "ENABLED",
+        "interface": "PCF8574 U2 + 电机驱动",
+        "notes": "电机型号与归零方式由样板冻结"
+      },
+      {
+        "key": "DRY",
+        "label": "干燥",
+        "support": "ENABLED",
+        "interface": "C3 软件模式",
+        "notes": "默认最大 60 分钟，节拍需热测试确认"
+      },
+      {
+        "key": "DEFOG",
+        "label": "除雾",
+        "support": "OPTIONAL",
+        "interface": "C3 软件模式",
+        "notes": "产品需求尚未冻结"
+      },
+      {
+        "key": "BATH_MODE",
+        "label": "沐浴模式",
+        "support": "ENABLED",
+        "interface": "C3 软件模式",
+        "notes": "由安全状态机组合风机与取暖输出"
+      },
+      {
+        "key": "CONSTANT_TEMPERATURE",
+        "label": "恒温模式",
+        "support": "ENABLED",
+        "interface": "C3 软件闭环",
+        "notes": "参数必须由样板温升测试标定"
+      },
+      {
+        "key": "TARGET_TEMPERATURE",
+        "label": "目标温度",
+        "support": "ENABLED",
+        "interface": "C3 软件参数",
+        "notes": "30 至 45 摄氏度，默认 40 摄氏度"
+      },
+      {
+        "key": "NTC_TEMPERATURE",
+        "label": "NTC 温度采集",
+        "support": "ENABLED",
+        "interface": "C3 ADC",
+        "notes": "NTC 型号、B 值和安装位置由东信样板冻结"
+      },
+      {
+        "key": "RADAR_OCCUPANCY",
+        "label": "雷达/人感",
+        "support": "ENABLED",
+        "interface": "PCF8574 U3 输入或 UART 预留",
+        "notes": "优先数字存在信号接PCF输入，具体模组待定"
+      },
+      {
+        "key": "BLE_LOCAL_CONTROLLERS",
+        "label": "BLE 墙面板与遥控器",
+        "support": "ENABLED",
+        "interface": "ESP32-C3 内置 BLE",
+        "notes": "默认绑定一个墙面触控板和一个手持遥控器，命令必须回执并同步真实状态"
+      },
+      {
+        "key": "DISPLAY",
+        "label": "温度显示",
+        "support": "OPTIONAL",
+        "interface": "墙面触控板本地驱动",
+        "notes": "由BLE接收C3真实状态，不通过长线连接主板I2C"
+      },
+      {
+        "key": "TOUCH_KEYS",
+        "label": "11 个触摸键",
+        "support": "OPTIONAL",
+        "interface": "墙面触控板本地扫描",
+        "notes": "触控板发送语义命令，不发送PCF端口编号"
+      },
+      {
+        "key": "PURIFICATION",
+        "label": "等离子净化",
+        "support": "OPTIONAL",
+        "interface": "预留扩展输出",
+        "notes": "独立硬件输出尚未确认"
+      }
+    ],
+    "safetyDefaults": {
+      "targetTemperatureMinCelsius": 30,
+      "targetTemperatureMaxCelsius": 45,
+      "targetTemperatureDefaultCelsius": 40,
+      "fanCooldownSeconds": 120,
+      "heaterMaxContinuousMinutes": 60,
+      "dryModeMaxMinutes": 60,
+      "softwareOverTemperatureCelsius": null,
+      "hardwareThermalCutoffRequired": true,
+      "powerOnAllLoadsOff": true,
+      "heatRequiresFan": true,
+      "halfDuplexVoice": true
+    },
+    "createdAt": "2026-09-14T00:00:00.000Z",
+    "updatedAt": "2026-09-14T08:00:00.000Z"
+  }
+]

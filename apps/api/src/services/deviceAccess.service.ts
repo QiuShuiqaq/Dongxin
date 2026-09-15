@@ -65,7 +65,7 @@ export interface DeviceVoiceTurnData {
   usage: DeviceAccessUsage;
 }
 
-export async function registerDeviceAccess(requestBody: unknown) {
+export async function registerDeviceAccess(requestBody: unknown, transport: 'HTTP' | 'MQTT' = 'HTTP') {
   const body = DeviceRegisterRequestSchema.parse(requestBody);
   const devices = await listDevices();
   const now = new Date().toISOString();
@@ -75,7 +75,7 @@ export async function registerDeviceAccess(requestBody: unknown) {
     name: existing?.name ?? `东信浴霸 ${body.deviceId}`,
     model: body.model,
     firmwareVersion: body.firmwareVersion ?? null,
-    protocol: 'HTTP',
+    protocol: transport,
     status: 'ONLINE',
     notes: `protocol=${body.protocolVersion}; capabilities=${Object.keys(body.capabilities).join(',')}`,
     createdAt: existing?.createdAt ?? now,
@@ -142,6 +142,11 @@ export async function getDeviceAccessConfig(deviceId: string) {
 export async function handleDeviceStateReport(requestBody: unknown) {
   const body = DeviceStateReportRequestSchema.parse(requestBody);
   await ensureDevice(body.deviceId);
+  if (typeof body.state.isOnline === 'boolean') {
+    await patchDeviceProfile(body.deviceId, {
+      status: body.state.isOnline ? 'ONLINE' : 'OFFLINE'
+    });
+  }
   patchDeviceCloudState(body.state);
   await recordDeviceEvent({
     deviceId: body.deviceId,
@@ -290,11 +295,43 @@ export async function pollDeviceAccessCommands(deviceId: string, limit: number) 
 export async function handleDeviceCommandResult(requestBody: unknown) {
   const body = DeviceCommandResultRequestSchema.parse(requestBody);
   await ensureDevice(body.deviceId);
+  const commands = await listDeviceCommands();
+  const currentCommand = commands.find((command) => command.id === body.commandId);
+  if (!currentCommand || currentCommand.deviceId !== body.deviceId) {
+    throw new ApiError(404, 'COMMAND_NOT_FOUND', `Unknown command for device: ${body.commandId}`);
+  }
+
+  const nextStatus = mapCommandResultStatus(body.status);
+  if (isTerminalCommandStatus(currentCommand.status)) {
+    if (currentCommand.status === nextStatus) {
+      return {
+        accepted: true,
+        duplicate: true,
+        command: currentCommand
+      };
+    }
+
+    await recordDeviceEvent({
+      deviceId: body.deviceId,
+      type: 'COMMAND_RESULT',
+      payload: {
+        commandId: body.commandId,
+        status: body.status,
+        ignored: true,
+        reason: `Command already completed as ${currentCommand.status}`
+      }
+    });
+    return {
+      accepted: false,
+      ignored: true,
+      command: currentCommand
+    };
+  }
+
   if (body.state) {
     patchDeviceCloudState(body.state);
   }
 
-  const nextStatus = mapCommandResultStatus(body.status);
   const command = await patchDeviceCommand(body.commandId, {
     status: nextStatus,
     completedAt: body.executedAt ?? new Date().toISOString()
@@ -312,6 +349,8 @@ export async function handleDeviceCommandResult(requestBody: unknown) {
       status: body.status,
       executedAt: body.executedAt ?? new Date().toISOString(),
       mcuFrame: body.mcuFrame ?? null,
+      executionPath: body.executionPath ?? null,
+      message: body.message ?? null,
       error: body.error ?? null,
       state: body.state ?? null
     }
@@ -385,7 +424,17 @@ function cloudStateToDeviceStatePatch(state: DeviceCloudState): Partial<DeviceSt
 }
 
 function hasModeUpdate(state: DeviceCloudState): boolean {
-  return ['power', 'light', 'heater', 'ventilation', 'fan', 'swing', 'dry'].some((key) => key in state);
+  return [
+    'power',
+    'light',
+    'heater',
+    'ventilation',
+    'fan',
+    'swing',
+    'dry',
+    'bathMode',
+    'constantTemperature'
+  ].some((key) => key in state);
 }
 
 function mapCloudModes(state: DeviceCloudState): DeviceIntent[] {
@@ -414,6 +463,12 @@ function mapCloudModes(state: DeviceCloudState): DeviceIntent[] {
   }
   if (state.dry === 'on') {
     modes.push('DRY_ON');
+  }
+  if (state.bathMode === 'on') {
+    modes.push('BATH_MODE_ON');
+  }
+  if (state.constantTemperature === 'on') {
+    modes.push('CONSTANT_TEMP_ON');
   }
   return modes;
 }
@@ -644,7 +699,7 @@ function getCommandIntents(aiResult: AiResult, approvedCommands: DeviceIntent[])
   return aiResult.intent ? [aiResult.intent] : [];
 }
 
-function commandToPollingResponse(command: DeviceCommandRecord) {
+export function commandToPollingResponse(command: DeviceCommandRecord) {
   const action = intentToDeviceAction(command.intent, command.slots);
   if (!action) {
     return null;
@@ -698,6 +753,14 @@ export function intentToDeviceAction(intent: DeviceIntent, slots: Record<string,
     case 'DRY_OFF':
     case 'DEFOG_OFF':
       return { code: 'dry', value: 'off' };
+    case 'BATH_MODE_ON':
+      return { code: 'bath', value: 'on' };
+    case 'BATH_MODE_OFF':
+      return { code: 'bath', value: 'off' };
+    case 'CONSTANT_TEMP_ON':
+      return { code: 'constantTemperature', value: 'on' };
+    case 'CONSTANT_TEMP_OFF':
+      return { code: 'constantTemperature', value: 'off' };
     case 'STANDBY':
       return { code: 'standby', value: 'on' };
     case 'SET_TEMP':
@@ -735,6 +798,10 @@ function mapCommandResultStatus(status: DeviceCommandResultRequest['status']): D
     default:
       return 'FAILED';
   }
+}
+
+function isTerminalCommandStatus(status: DeviceCommandRecord['status']): boolean {
+  return status === 'APPLIED' || status === 'REJECTED' || status === 'FAILED';
 }
 
 function control(intent: DeviceIntent, speak: string, requiresConfirm = false): AiResult {

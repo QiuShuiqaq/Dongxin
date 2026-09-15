@@ -10,6 +10,8 @@ import { listTestCases } from '../services/testCase.service.js';
 import { listTestSetSummaries } from '../services/testSet.service.js';
 import { listDevices } from '../services/deviceRegistry.service.js';
 import { getProductionCostSettings } from '../repositories/productionCost.repository.js';
+import { getHardwareConfig } from '../services/hardwareConfig.service.js';
+import { listBoardProfiles } from '../repositories/hardwareConfig.repository.js';
 
 export async function registerBootstrapRoutes(server: FastifyInstance): Promise<void> {
   server.get('/api/bootstrap', async () => {
@@ -20,12 +22,14 @@ export async function registerBootstrapRoutes(server: FastifyInstance): Promise<
       listTestSetSummaries(),
       listRecentEvaluations(20)
     ]);
-    const [devices, knowledgeDocuments, proactiveSettings, logs, productionCostSettings] = await Promise.all([
+    const [devices, knowledgeDocuments, proactiveSettings, logs, productionCostSettings, hardwareConfig, boardProfiles] = await Promise.all([
       listDevices(),
       listKnowledgeDocuments(),
       getProactiveSettings(),
       listLogs({ limit: 20 }),
-      getProductionCostSettings()
+      getProductionCostSettings(),
+      getHardwareConfig(),
+      listBoardProfiles()
     ]);
 
     return {
@@ -39,6 +43,9 @@ export async function registerBootstrapRoutes(server: FastifyInstance): Promise<
       proactiveSettings,
       logs,
       productionCostSettings,
+      productProfiles: hardwareConfig.productProfiles,
+      voiceProfiles: hardwareConfig.voiceProfiles,
+      boardProfiles,
       deviceState: getCurrentDeviceState()
     };
   });

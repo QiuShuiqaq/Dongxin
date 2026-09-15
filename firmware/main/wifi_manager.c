@@ -6,6 +6,7 @@
  */
 
 #include <stdio.h>
+#include <string.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -113,6 +114,11 @@ void wifi_manager_init(void)
     };
     snprintf((char *)wifi_config.sta.ssid, sizeof(wifi_config.sta.ssid), "%s", DX_WIFI_SSID);
     snprintf((char *)wifi_config.sta.password, sizeof(wifi_config.sta.password), "%s", DX_WIFI_PASSWORD);
+#if DX_WIFI_LOCK_BSSID
+    const uint8_t preferred_bssid[6] = DX_WIFI_BSSID;
+    wifi_config.sta.bssid_set = true;
+    memcpy(wifi_config.sta.bssid, preferred_bssid, sizeof(preferred_bssid));
+#endif
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));

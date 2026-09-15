@@ -9,6 +9,7 @@
 #include "../boards/board_s3_audio_lcd.h"
 
 #include "freertos/FreeRTOS.h"
+#include "esp_psram.h"
 
 static const char *TAG = "BOARD_SUPPORT";
 static bool s_i2c0_ready;
@@ -81,6 +82,23 @@ static void scan_i2c_bus(i2c_port_t port, const char *bus_name)
 
 esp_err_t dx_board_support_init(void)
 {
+#if !CONFIG_SPIRAM
+    ESP_LOGE(TAG, "S3 audio target requires PSRAM, but CONFIG_SPIRAM is disabled");
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    const size_t psram_size = esp_psram_get_size();
+    if (psram_size < BOARD_PSRAM_SIZE) {
+        ESP_LOGE(
+            TAG,
+            "PSRAM self-test failed: detected=%u expected-at-least=%u bytes",
+            (unsigned int)psram_size,
+            (unsigned int)BOARD_PSRAM_SIZE
+        );
+        return ESP_ERR_INVALID_SIZE;
+    }
+    ESP_LOGI(TAG, "PSRAM ready: %u bytes", (unsigned int)psram_size);
+#endif
+
     esp_err_t err = init_i2c_bus(I2C0_PORT, I2C0_SDA, I2C0_SCL, I2C0_SPEED);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "I2C0 init failed: %s", esp_err_to_name(err));

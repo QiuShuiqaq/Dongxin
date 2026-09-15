@@ -1,6 +1,6 @@
 /*
  * 语音引擎模块
- * 职责：离线语音唤醒与识别（27项本地指令）、联网AI对话（豆包SDK）、TTS语音播报
+ * 职责：适配CI1302控制事件与I2S PCM、转发在线语音、请求提示音/播报
  * 双引擎：离线稳定（断网可用）、联网智能（自然对话/生活服务/内容服务）
  */
 
@@ -27,8 +27,8 @@ void voice_engine_init(void)
         board->has_psram ? "yes" : "no",
         board->has_sensors ? "yes" : "no"
     );
-    ESP_LOGI(TAG, "TODO: 初始化音频Codec、麦克风采集、扬声器播放");
-    ESP_LOGI(TAG, "TODO: 加载离线语音模型（唤醒词'小东' + 27项本地指令）");
-    ESP_LOGI(TAG, "TODO: 集成语音前端（VAD/AEC/NS）、远场降噪");
-    ESP_LOGI(TAG, "TODO: 联网模式对接豆包对话SDK、TTS播报");
+    ESP_LOGI(TAG, "TODO: 适配CI1302 UART0 115200控制事件和资源版本");
+    ESP_LOGI(TAG, "TODO: 适配CI1302 I2S 16kHz/16bit/mono PCM采集与播放");
+    ESP_LOGI(TAG, "TODO: 映射平台发布的唤醒词、离线语义ID和提示音资源");
+    ESP_LOGI(TAG, "TODO: 未命中时通过在线ASR/规则/知识库/LLM/TTS链路处理");
 }

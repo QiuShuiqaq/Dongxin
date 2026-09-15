@@ -11,10 +11,12 @@ import {
   executeCommandForDevice,
   getDevice,
   getDeviceState,
+  listCommandsForDevice,
   listDevices,
   queueDeviceCommand,
   recordDeviceEvent
 } from '../services/deviceRegistry.service.js';
+import { publishQueuedDeviceCommand } from '../services/mqttGateway.service.js';
 
 export async function registerDevicesRoutes(server: FastifyInstance): Promise<void> {
   server.get('/api/device-state', async () => getCurrentDeviceState());
@@ -60,7 +62,22 @@ export async function registerDevicesRoutes(server: FastifyInstance): Promise<vo
       safetyDecision: null,
       completedAt: null
     });
-    const result = await executeCommandForDevice(deviceId, command);
-    return result;
+    const device = await getDevice(deviceId);
+    if (device.protocol === 'SIMULATOR') {
+      return executeCommandForDevice(deviceId, command);
+    }
+
+    const delivered = await publishQueuedDeviceCommand(command);
+    return {
+      state: await getDeviceState(deviceId),
+      command,
+      delivery: delivered ? 'MQTT' : 'QUEUED_FOR_DEVICE'
+    };
+  });
+
+  server.get('/api/devices/:deviceId/commands', async (request) => {
+    const { deviceId } = request.params as { deviceId: string };
+    await getDevice(deviceId);
+    return listCommandsForDevice(deviceId);
   });
 }

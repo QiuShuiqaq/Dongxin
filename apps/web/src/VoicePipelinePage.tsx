@@ -1482,12 +1482,12 @@ function buildVisualNodes(result: VoicePipelineResponse | null): VisualNode[] {
     },
     {
       key: "OFFLINE_DEVICE",
-      title: "离线直接控制 MCU",
-      description: "离线模块完成控制或回复",
+      title: "CI语义进入C3",
+      description: "C3安全状态机执行或返回固定回复",
       branchLabel: "离线路径",
       status: result ? (route === "OFFLINE" ? "MATCHED" : "SKIPPED") : "IDLE",
       stage: route === "OFFLINE" ? stage("DEVICE") : undefined,
-      result: route === "OFFLINE" ? "离线模块处理完成" : "未走离线路径",
+      result: route === "OFFLINE" ? "CI1302语义由C3处理完成" : "未走离线路径",
       detail: {
         route,
         deviceStage: route === "OFFLINE" ? (stage("DEVICE") ?? null) : null,
@@ -1578,7 +1578,7 @@ function buildVisualNodes(result: VoicePipelineResponse | null): VisualNode[] {
     {
       key: "DEVICE",
       title: "下发控制",
-      description: "下发 MCU 或仅预览命令",
+      description: "下发C3状态机或仅预览命令",
       gridArea: "device",
       ...fromStage("DEVICE"),
     },

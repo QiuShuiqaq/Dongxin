@@ -21,6 +21,8 @@ typedef struct {
     bool fan;
     bool swing;
     bool dry;
+    bool bath_mode;
+    bool constant_temperature;
     int16_t target_temperature;
     float ambient_temperature;
     uint8_t humidity;

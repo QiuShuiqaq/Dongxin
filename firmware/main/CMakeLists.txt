@@ -6,9 +6,15 @@ idf_component_register(
         "board_profile.c"
         "wifi_manager.c"
         "cloud_agent.c"
+        "mqtt_agent.c"
+        "device_command.c"
+        "command_queue.c"
+        "device_controller.c"
+        "direct_control_hal.c"
+        "pcf8574.c"
         "uart_bridge.c"
         "voice_engine.c"
         "device_state.c"
     INCLUDE_DIRS "."
-    REQUIRES esp_wifi esp_event esp_netif esp_http_client esp_driver_uart esp_driver_gpio esp_driver_i2c esp_driver_i2s esp_driver_spi esp_lcd json nvs_flash
+    REQUIRES esp_wifi esp_event esp_netif esp_http_client mqtt esp_timer esp_psram esp_driver_uart esp_driver_gpio esp_driver_i2c esp_driver_i2s esp_driver_spi esp_lcd json nvs_flash
 )

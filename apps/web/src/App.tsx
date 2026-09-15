@@ -6,6 +6,7 @@ import {
   CalculatorOutlined,
   CheckCircleOutlined,
   CloudServerOutlined,
+  ControlOutlined,
   DatabaseOutlined,
   DeleteOutlined,
   EditOutlined,
@@ -77,6 +78,7 @@ import {
   clearProviderApiKey,
   createKnowledgeDocument,
   getBootstrap,
+  getDeviceCommands,
   getDevices,
   getDeviceAccessConfig,
   getKnowledgeDocuments,
@@ -109,6 +111,7 @@ import type {
   DeviceAccessVoiceTurnResponse,
 } from "./api";
 import { VoicePipelinePage } from "./VoicePipelinePage";
+import { HardwareConfigPage } from "./HardwareConfigPage";
 
 const { Header, Content, Sider } = Layout;
 const { Text, Title } = Typography;
@@ -126,6 +129,7 @@ type AppSection =
   | "providers"
   | "devices"
   | "access"
+  | "hardware"
   | "knowledge"
   | "proactive"
   | "costs"
@@ -151,6 +155,10 @@ const sectionMeta: Record<AppSection, { title: string; description: string }> =
       title: "设备接入",
       description:
         "对接 WiFi 模块和样机，验证状态上报、语音请求和控制指令链路。",
+    },
+    hardware: {
+      title: "产品与语音配置",
+      description: "管理 C3 硬件能力、CI1302 语音资源版本和板级事件验证。",
     },
     devices: {
       title: "设备管理",
@@ -359,11 +367,22 @@ function App() {
   ) {
     try {
       const result = await sendDeviceCommand(deviceId, input);
-      setBootstrap((current) =>
-        current ? { ...current, deviceState: result.state } : current,
-      );
+      let finalStatus = result.command.status;
+      for (let attempt = 0; finalStatus === "QUEUED" && attempt < 20; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+        const commands = await getDeviceCommands(deviceId);
+        finalStatus =
+          commands.find((command) => command.id === result.command.id)?.status ||
+          finalStatus;
+      }
       await refresh();
-      apiMessage.success("设备指令已执行");
+      if (finalStatus === "APPLIED") {
+        apiMessage.success("设备已执行并回传结果");
+      } else if (finalStatus === "QUEUED") {
+        apiMessage.warning("指令已排队，正在等待设备回执");
+      } else {
+        apiMessage.error(`设备执行失败：${finalStatus}`);
+      }
     } catch (error) {
       apiMessage.error(error instanceof Error ? error.message : String(error));
     }
@@ -515,6 +534,12 @@ function App() {
               </NavGroup>
               <NavGroup label="设备联调">
                 <NavItem
+                  icon={<ControlOutlined />}
+                  label="产品与语音配置"
+                  active={activeSection === "hardware"}
+                  onClick={() => setActiveSection("hardware")}
+                />
+                <NavItem
                   icon={<ApiOutlined />}
                   label="设备接入"
                   active={activeSection === "access"}
@@ -631,6 +656,14 @@ function App() {
                   onPatchDeviceState={updateDeviceState}
                   onSendCommand={handleSendDeviceCommand}
                   onRecordEvent={handleRecordDeviceEvent}
+                />
+              )}
+              {activeSection === "hardware" && (
+                <HardwareConfigPage
+                  productProfiles={bootstrap?.productProfiles ?? []}
+                  voiceProfiles={bootstrap?.voiceProfiles ?? []}
+                  selectedDeviceId={selectedDeviceId}
+                  onRefresh={refresh}
                 />
               )}
               {activeSection === "access" && (
@@ -2777,7 +2810,7 @@ function DeviceAccessPage(props: {
     await runOperation("设备注册", () =>
       registerDeviceAccess({
         deviceId,
-        model: String(values.model || "DX-AI-Bath-Heater"),
+        model: String(values.model || "DX-AI-01"),
         firmwareVersion: values.firmwareVersion
           ? String(values.firmwareVersion)
           : null,
@@ -2978,7 +3011,7 @@ function DeviceAccessPage(props: {
       <PageIntro
         eyebrow="样机联调"
         title="联调流程 V0.1"
-        description="验证 WiFi 模组到 AI Gateway 的注册、状态、语音和命令闭环。"
+        description="验证ESP32-C3到AI Gateway的注册、状态、语音和命令闭环。"
         extra={<Button onClick={() => void props.onRefresh()}>刷新</Button>}
       />
       <div className="flow-strip">
@@ -2988,7 +3021,7 @@ function DeviceAccessPage(props: {
         </div>
         <div className="flow-node">
           <Text strong>状态</Text>
-          <Text type="secondary">MCU 数据上报</Text>
+          <Text type="secondary">C3状态上报</Text>
         </div>
         <div className="flow-node">
           <Text strong>语音</Text>
@@ -3011,7 +3044,7 @@ function DeviceAccessPage(props: {
               layout="vertical"
               initialValues={{
                 deviceId: props.selectedDeviceId || "demo-bath-heater-001",
-                model: "DX-AI-Bath-Heater",
+                model: "DX-AI-01",
                 protocolVersion: "0.1",
                 firmwareVersion: "dev-0.1",
                 rssi: -48,
@@ -4279,8 +4312,7 @@ function CostStatsPage(props: {
         description={
           <Space orientation="vertical" size={4}>
             <span>
-              离线固定命令由离线模块直接控制 MCU，不计入服务器 ASR、LLM、TTS
-              费用。
+              离线固定命令由CI1302识别语义、C3安全执行，不计入服务器ASR、LLM、TTS费用。
             </span>
             <span>
               每个进入服务器的在线语音请求计 1 次 ASR；简单规则命中不计
@@ -4696,8 +4728,8 @@ function CostStatsPage(props: {
         <Alert
           type="info"
           showIcon
-          title="当前推荐口径：ESP32-C3只做唤醒词和固定指令，完整自然语言交给在线ASR。"
-          description="ESP32-S3 + PSRAM属于本地通用语音验证方案，表中单台硬件增量是当前估算值，最终以东信样机BOM和采购报价为准。"
+          title="当前固定口径：ESP32-C3负责唤醒和在线音频，完整自然语言交给在线ASR。"
+          description="S3保留为单芯片开发测试和量产备选，但成本较高，不作为当前首选；两条路线都用相同用例验证。"
           style={{ marginBottom: 12 }}
         />
         <Table
@@ -4729,7 +4761,7 @@ function CostStatsPage(props: {
               render: (_, row: (typeof asrPlanRows)[number]) =>
                 row.plan.supportsFreeSpeech
                   ? "支持本地通用语音（待验证）"
-                  : "仅固定关键词/指令",
+                  : "现有模块固定命令",
             },
             {
               title: "单台硬件增量",
@@ -8015,7 +8047,7 @@ function CostCenterPage(props: {
           type="info"
           showIcon
           message="ASR 方案只替换语音识别路径，不会取消 LLM、TTS、知识库、服务器和设备管理费用。"
-          description="当前建议先用 ESP32-C3 做固定指令兜底，复杂语音走云端 ASR；ESP32-S3 + PSRAM 作为本地通用 ASR 验证方案，等浴室噪声、内存和量产成本确认后再定。"
+          description="当前首选ESP32-C3作为唯一业务主控，CI1302承担唤醒、离线命令和音频，云端ASR处理自然语言；ESP32-S3保留为成本较高的对照方案。"
         />
         <Card
           size="small"
@@ -8061,10 +8093,10 @@ function CostCenterPage(props: {
                     只看 ASR 路径，硬件增量只计一次，ASR 服务费按年累计
                   </Descriptions.Item>
                   <Descriptions.Item label="适用判断">
-                    观察长期销售后，云端 ASR 年费是否明显超过本地 ASR 硬件增量
+                    对比 C3 首选方案和 S3 单芯片备选的长期费用
                   </Descriptions.Item>
                   <Descriptions.Item label="当前重点">
-                    1 到 10 年累计成本和不同方案交叉点
+                    1 到 10 年累计成本和硬件差额
                   </Descriptions.Item>
                 </Descriptions>
               </Space>
@@ -8288,7 +8320,7 @@ function CostCenterPage(props: {
                 render: (_, row: (typeof asrPlanRowsWithPayback)[number]) =>
                   row.plan.supportsFreeSpeech
                     ? "本地通用语音，待验证"
-                    : "固定唤醒词和指令词",
+                    : "现有模块固定命令",
               },
               {
                 title: "单台硬件增量",

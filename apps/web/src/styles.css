@@ -260,6 +260,25 @@ body {
   min-height: 32px;
 }
 
+.hardware-config-page .ant-statistic-content {
+  font-size: 22px;
+}
+
+.hardware-safety-form .ant-input-number {
+  width: 100%;
+}
+
+.voice-version-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: 14px 0;
+}
+
+.ci-event-run {
+  width: 100%;
+  margin-top: 18px;
+}
+
 .inline-note {
   display: flex;
   align-items: center;

@@ -1,0 +1,328 @@
+[
+  {
+    "id": "dx-ai-voice-ci1302-1.0.0",
+    "productProfileId": "dx-ai-bath-c3-ci1302-v1",
+    "version": "1.0.0",
+    "status": "DRAFT",
+    "wakeWord": "小东小东",
+    "supportsSeparateAndContinuousSpeech": true,
+    "personalWakeWordPolicy": "ON_DEVICE_SELF_LEARNING",
+    "offlineFirst": true,
+    "commands": [
+      {
+        "id": "light-on",
+        "semanticId": 1001,
+        "phrase": "打开照明",
+        "aliases": ["开灯", "把灯打开"],
+        "intent": "LIGHT_ON",
+        "slots": {},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "light-off",
+        "semanticId": 1002,
+        "phrase": "关闭照明",
+        "aliases": ["关灯", "把灯关掉"],
+        "intent": "LIGHT_OFF",
+        "slots": {},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "fan-on",
+        "semanticId": 1011,
+        "phrase": "打开吹风",
+        "aliases": ["开启吹风", "打开凉风"],
+        "intent": "FAN_ON",
+        "slots": {},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "fan-off",
+        "semanticId": 1012,
+        "phrase": "关闭吹风",
+        "aliases": ["关掉吹风", "关闭凉风"],
+        "intent": "FAN_OFF",
+        "slots": {},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "ventilation-on",
+        "semanticId": 1021,
+        "phrase": "打开换气",
+        "aliases": ["开启换气", "开始通风"],
+        "intent": "VENTILATION_ON",
+        "slots": {},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "ventilation-off",
+        "semanticId": 1022,
+        "phrase": "关闭换气",
+        "aliases": ["关掉换气", "关闭通风"],
+        "intent": "VENTILATION_OFF",
+        "slots": {},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "heat-weak-on",
+        "semanticId": 1031,
+        "phrase": "打开弱暖",
+        "aliases": ["开启弱暖", "有点冷"],
+        "intent": "HEAT_WEAK_ON",
+        "slots": {},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "heat-strong-on",
+        "semanticId": 1032,
+        "phrase": "打开强暖",
+        "aliases": ["开启强暖", "太冷了"],
+        "intent": "HEAT_STRONG_ON",
+        "slots": {},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "heat-off",
+        "semanticId": 1033,
+        "phrase": "关闭暖风",
+        "aliases": ["关闭取暖", "关掉暖风"],
+        "intent": "HEAT_WEAK_OFF",
+        "slots": {},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "swing-on",
+        "semanticId": 1041,
+        "phrase": "打开摆风",
+        "aliases": ["开启摆风", "打开扫风"],
+        "intent": "SWING_ON",
+        "slots": {},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "swing-off",
+        "semanticId": 1042,
+        "phrase": "关闭摆风",
+        "aliases": ["关掉摆风", "关闭扫风"],
+        "intent": "SWING_OFF",
+        "slots": {},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "dry-on",
+        "semanticId": 1051,
+        "phrase": "打开干燥",
+        "aliases": ["开启干燥", "开始干燥"],
+        "intent": "DRY_ON",
+        "slots": {"durationMinutes": 60},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "dry-off",
+        "semanticId": 1052,
+        "phrase": "关闭干燥",
+        "aliases": ["停止干燥", "关掉干燥"],
+        "intent": "DRY_OFF",
+        "slots": {},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "standby",
+        "semanticId": 1060,
+        "phrase": "全部关闭",
+        "aliases": ["关闭浴霸", "进入待机"],
+        "intent": "STANDBY",
+        "slots": {},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "bath-mode-on",
+        "semanticId": 1071,
+        "phrase": "打开沐浴模式",
+        "aliases": ["开启沐浴", "我要洗澡"],
+        "intent": "BATH_MODE_ON",
+        "slots": {},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "temp-30",
+        "semanticId": 1100,
+        "phrase": "温度调到三十度",
+        "aliases": ["设置三十度"],
+        "intent": "SET_TEMP",
+        "slots": {"temperature": 30},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "temp-31",
+        "semanticId": 1101,
+        "phrase": "温度调到三十一度",
+        "aliases": ["设置三十一度"],
+        "intent": "SET_TEMP",
+        "slots": {"temperature": 31},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "temp-32",
+        "semanticId": 1102,
+        "phrase": "温度调到三十二度",
+        "aliases": ["设置三十二度"],
+        "intent": "SET_TEMP",
+        "slots": {"temperature": 32},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "temp-33",
+        "semanticId": 1103,
+        "phrase": "温度调到三十三度",
+        "aliases": ["设置三十三度"],
+        "intent": "SET_TEMP",
+        "slots": {"temperature": 33},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "temp-34",
+        "semanticId": 1104,
+        "phrase": "温度调到三十四度",
+        "aliases": ["设置三十四度"],
+        "intent": "SET_TEMP",
+        "slots": {"temperature": 34},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "temp-35",
+        "semanticId": 1105,
+        "phrase": "温度调到三十五度",
+        "aliases": ["设置三十五度"],
+        "intent": "SET_TEMP",
+        "slots": {"temperature": 35},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "temp-36",
+        "semanticId": 1106,
+        "phrase": "温度调到三十六度",
+        "aliases": ["设置三十六度"],
+        "intent": "SET_TEMP",
+        "slots": {"temperature": 36},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "temp-37",
+        "semanticId": 1107,
+        "phrase": "温度调到三十七度",
+        "aliases": ["设置三十七度"],
+        "intent": "SET_TEMP",
+        "slots": {"temperature": 37},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "temp-38",
+        "semanticId": 1108,
+        "phrase": "温度调到三十八度",
+        "aliases": ["设置三十八度"],
+        "intent": "SET_TEMP",
+        "slots": {"temperature": 38},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "temp-39",
+        "semanticId": 1109,
+        "phrase": "温度调到三十九度",
+        "aliases": ["设置三十九度"],
+        "intent": "SET_TEMP",
+        "slots": {"temperature": 39},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "temp-40",
+        "semanticId": 1110,
+        "phrase": "温度调到四十度",
+        "aliases": ["设置四十度"],
+        "intent": "SET_TEMP",
+        "slots": {"temperature": 40},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "temp-41",
+        "semanticId": 1111,
+        "phrase": "温度调到四十一度",
+        "aliases": ["设置四十一度"],
+        "intent": "SET_TEMP",
+        "slots": {"temperature": 41},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "temp-42",
+        "semanticId": 1112,
+        "phrase": "温度调到四十二度",
+        "aliases": ["设置四十二度"],
+        "intent": "SET_TEMP",
+        "slots": {"temperature": 42},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "temp-43",
+        "semanticId": 1113,
+        "phrase": "温度调到四十三度",
+        "aliases": ["设置四十三度"],
+        "intent": "SET_TEMP",
+        "slots": {"temperature": 43},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "temp-44",
+        "semanticId": 1114,
+        "phrase": "温度调到四十四度",
+        "aliases": ["设置四十四度"],
+        "intent": "SET_TEMP",
+        "slots": {"temperature": 44},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      },
+      {
+        "id": "temp-45",
+        "semanticId": 1115,
+        "phrase": "温度调到四十五度",
+        "aliases": ["设置四十五度"],
+        "intent": "SET_TEMP",
+        "slots": {"temperature": 45},
+        "feedbackTone": "CONFIRM",
+        "enabled": true
+      }
+    ],
+    "resource": null,
+    "notes": "CI1302 首版离线词表；资源包必须经启英泰伦工具生成并在东信样板验证。",
+    "createdAt": "2026-09-14T00:00:00.000Z",
+    "updatedAt": "2026-09-14T00:00:00.000Z"
+  }
+]

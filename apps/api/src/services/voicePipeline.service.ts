@@ -33,6 +33,7 @@ import {
   queueDeviceCommand,
 } from "./deviceRegistry.service.js";
 import { intentToDeviceAction } from "./deviceAccess.service.js";
+import { publishQueuedDeviceCommand } from "./mqttGateway.service.js";
 import { synthesizeSpeech, transcribeAudio } from "./speech.service.js";
 
 export async function runVoicePipeline(
@@ -71,10 +72,10 @@ export async function runVoicePipeline(
   if (deviceOfflineHandled) {
     addStage(stages, {
       key: "OFFLINE_INTENT",
-      label: "离线模块",
+      label: "CI1302离线识别",
       status: "SKIPPED",
-      source: "DEVICE_LOCAL_MODULE",
-      result: "设备端离线模块未命中，本次请求进入在线 ASR",
+      source: "CI1302",
+      result: "CI1302离线命令未命中，本次请求进入在线ASR",
       detail: {
         handledOnDevice: true,
         reason: "DEVICE_AUDIO is the online fallback upload",
@@ -181,14 +182,14 @@ export async function runVoicePipeline(
       : matchOfflineIntent(normalizedText);
   const offlineResult =
     body.simulateOffline === "HIT" && !deviceOfflineHandled
-      ? (offlineMatchedResult ?? chat("离线模块模拟命中，已返回固定播报。"))
+      ? (offlineMatchedResult ?? chat("CI1302模拟命中，已返回固定播报。"))
       : offlineMatchedResult;
   const deviceState = await getDeviceState(body.deviceId);
 
   if (offlineResult) {
     addStage(stages, {
       key: "OFFLINE_INTENT",
-      label: "离线模块",
+      label: "CI1302离线识别",
       status: "MATCHED",
       source: "LOCAL_FIXED_INTENT",
       result: offlineResult.speak,
@@ -204,7 +205,7 @@ export async function runVoicePipeline(
       costCny: 0,
       error: null,
     });
-    addSkippedOnlineStages(stages, "离线模块已完成处理");
+    addSkippedOnlineStages(stages, "CI1302离线语义已由C3处理");
     return finishPipeline({
       sessionId,
       body,
@@ -221,9 +222,9 @@ export async function runVoicePipeline(
   if (!deviceOfflineHandled) {
     addStage(stages, {
       key: "OFFLINE_INTENT",
-      label: "离线模块",
+      label: "CI1302离线识别",
       status: "SKIPPED",
-      source: "LOCAL_FIXED_INTENT",
+      source: "CI1302",
       result: "未命中固定指令或固定对话，进入在线链路",
       detail: {
         inputText: normalizedText,
@@ -504,6 +505,7 @@ async function finishPipeline(input: {
       input.body.inputSource === "DEVICE_TEXT"
     ) {
       commandRecord = command;
+      await publishQueuedDeviceCommand(command);
     } else {
       const executed = await executeCommandForDevice(
         input.body.deviceId,
@@ -644,7 +646,7 @@ function resolveWakeWord(
   return {
     detected,
     source: detected
-      ? "WAKE_NET_OR_ASR"
+      ? "CI1302_OR_ASR"
       : inputSource === "TEXT_SIMULATION" || inputSource === "DEVICE_TEXT"
         ? "TEST_SESSION"
         : "ASR_TEXT",

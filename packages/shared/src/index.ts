@@ -468,6 +468,8 @@ export const DeviceActionCodeSchema = z.enum([
   "fan",
   "swing",
   "dry",
+  "bath",
+  "constantTemperature",
   "standby",
   "temperature",
   "timer",
@@ -493,6 +495,8 @@ export const DeviceCloudStateSchema = z.object({
   fan: z.enum(["on", "off"]).optional(),
   swing: z.enum(["on", "off"]).optional(),
   dry: z.enum(["on", "off"]).optional(),
+  bathMode: z.enum(["on", "off"]).optional(),
+  constantTemperature: z.enum(["on", "off"]).optional(),
   targetTemperature: z.number().int().min(0).max(80).nullable().optional(),
   ambientTemperature: z.number().nullable().optional(),
   humidity: z.number().min(0).max(100).nullable().optional(),
@@ -575,6 +579,8 @@ export const DeviceCommandResultRequestSchema = z.object({
   status: z.enum(["success", "failed", "rejected", "timeout"]),
   executedAt: z.string().optional(),
   mcuFrame: z.string().optional(),
+  executionPath: z.string().min(1).optional(),
+  message: z.string().optional(),
   state: DeviceCloudStateSchema.optional(),
   error: z
     .object({
@@ -922,3 +928,374 @@ export const SystemLogSchema = z.object({
   createdAt: z.string(),
 });
 export type SystemLog = z.infer<typeof SystemLogSchema>;
+
+export const ProductCapabilityKeySchema = z.enum([
+  "LIGHT",
+  "NIGHT_LIGHT",
+  "FAN",
+  "VENTILATION",
+  "HEAT_WEAK",
+  "HEAT_STRONG",
+  "SWING",
+  "DRY",
+  "DEFOG",
+  "BATH_MODE",
+  "CONSTANT_TEMPERATURE",
+  "TARGET_TEMPERATURE",
+  "NTC_TEMPERATURE",
+  "RADAR_OCCUPANCY",
+  "REMOTE_2_4G",
+  "BLE_LOCAL_CONTROLLERS",
+  "DISPLAY",
+  "TOUCH_KEYS",
+  "PURIFICATION",
+]);
+export type ProductCapabilityKey = z.infer<
+  typeof ProductCapabilityKeySchema
+>;
+
+export const ProductCapabilitySupportSchema = z.enum([
+  "ENABLED",
+  "OPTIONAL",
+  "NOT_SUPPORTED",
+]);
+export type ProductCapabilitySupport = z.infer<
+  typeof ProductCapabilitySupportSchema
+>;
+
+export const ProductCapabilitySchema = z.object({
+  key: ProductCapabilityKeySchema,
+  label: z.string().min(1),
+  support: ProductCapabilitySupportSchema,
+  interface: z.string().min(1),
+  notes: z.string().default(""),
+});
+export type ProductCapability = z.infer<typeof ProductCapabilitySchema>;
+
+export const IoExpansionConfigSchema = z.object({
+  bus: z.literal("I2C"),
+  frequencyHz: z.number().int().positive().max(100_000),
+  type: z.literal("PCF8574"),
+  deviceCount: z.number().int().min(1).max(8),
+  addresses: z.array(z.number().int().min(0x08).max(0x77)),
+  portCount: z.number().int().positive(),
+  outputActiveLevel: z.literal("LOW"),
+  loadEnableRequired: z.literal(true),
+});
+export type IoExpansionConfig = z.infer<typeof IoExpansionConfigSchema>;
+
+export const VoiceHardwareLinkSchema = z.object({
+  controlTransport: z.literal("UART0"),
+  controlBaudRate: z.number().int().positive().max(3_000_000),
+  audioTransport: z.literal("I2S_PCM"),
+  audioSampleRateHz: z.literal(16_000),
+  audioBitsPerSample: z.literal(16),
+  audioChannels: z.literal(1),
+  externalCrystalRequired: z.literal(true),
+});
+export type VoiceHardwareLink = z.infer<typeof VoiceHardwareLinkSchema>;
+
+export const LocalControllerConfigSchema = z.object({
+  transport: z.literal("ESP32_C3_BLE"),
+  wallPanelCount: z.number().int().min(0).max(4),
+  handheldRemoteCount: z.number().int().min(0).max(4),
+  maximumBondedControllers: z.number().int().min(1).max(8),
+  encryptedBondingRequired: z.literal(true),
+  commandAcknowledgementRequired: z.literal(true),
+});
+export type LocalControllerConfig = z.infer<
+  typeof LocalControllerConfigSchema
+>;
+
+export const HardwareDefinitionStatusSchema = z.enum([
+  "PLANNED",
+  "ASSIGNED",
+  "VERIFIED",
+  "FROZEN",
+  "RESERVED",
+]);
+export type HardwareDefinitionStatus = z.infer<
+  typeof HardwareDefinitionStatusSchema
+>;
+
+export const BoardPinSchema = z.object({
+  id: z.string().min(1),
+  position: z.number().int().positive(),
+  side: z.enum(["LEFT", "RIGHT", "INTERNAL"]),
+  label: z.string().min(1),
+  gpio: z.number().int().min(0).max(48).nullable(),
+  signal: z.string().min(1),
+  direction: z.enum(["INPUT", "OUTPUT", "BIDIRECTIONAL", "POWER", "GROUND"]),
+  electrical: z.string().min(1),
+  target: z.string().min(1),
+  bootConstraint: z.string().default("无"),
+  defaultLevel: z.enum(["LOW", "HIGH", "HIGH_Z", "N/A"]),
+  status: HardwareDefinitionStatusSchema,
+  evidence: z.string().default(""),
+});
+export type BoardPin = z.infer<typeof BoardPinSchema>;
+
+export const IoExpanderPortSchema = z.object({
+  id: z.string().min(1),
+  device: z.enum(["U1", "U2", "U3"]),
+  address: z.number().int().min(0x08).max(0x77),
+  port: z.number().int().min(0).max(7),
+  signal: z.string().min(1),
+  direction: z.enum(["INPUT", "OUTPUT"]),
+  activeLevel: z.enum(["LOW", "HIGH", "N/A"]),
+  target: z.string().min(1),
+  status: HardwareDefinitionStatusSchema,
+  safetyClass: z.enum(["NORMAL", "INTERLOCK", "DANGEROUS_LOAD", "RESERVED"]),
+  notes: z.string().default(""),
+});
+export type IoExpanderPort = z.infer<typeof IoExpanderPortSchema>;
+
+export const BoardBusNodeSchema = z.object({
+  id: z.string().min(1),
+  bus: z.enum(["I2C", "UART", "I2S", "ADC", "BLE", "USB"]),
+  name: z.string().min(1),
+  endpoint: z.string().min(1),
+  parameters: z.string().min(1),
+  status: HardwareDefinitionStatusSchema,
+});
+export type BoardBusNode = z.infer<typeof BoardBusNodeSchema>;
+
+export const BoardProfileSchema = z.object({
+  id: z.string().min(1),
+  productProfileId: z.string().min(1),
+  name: z.string().min(1),
+  revision: z.string().min(1),
+  role: z.enum(["DEVELOPMENT", "PRODUCTION_CANDIDATE"]),
+  controller: z.enum(["ESP32_C3", "ESP32_S3"]),
+  lifecycle: z.enum(["ACTIVE", "DRAFT", "FROZEN", "RETIRED"]),
+  executionMode: z.enum(["LOCAL_VIRTUAL", "LOCAL_PHYSICAL"]),
+  loadVoltageScope: z.enum(["LOGIC_ONLY", "LOW_VOLTAGE", "MAINS"]),
+  flashSizeMB: z.number().int().positive(),
+  summary: z.string().min(1),
+  pins: z.array(BoardPinSchema),
+  buses: z.array(BoardBusNodeSchema),
+  ioPorts: z.array(IoExpanderPortSchema),
+  knownConstraints: z.array(z.string()),
+  updatedAt: z.string(),
+});
+export type BoardProfile = z.infer<typeof BoardProfileSchema>;
+
+export const ExecutionTraceStageSchema = z.object({
+  key: z.enum([
+    "REQUEST",
+    "MQTT",
+    "PARSER",
+    "QUEUE",
+    "SAFETY",
+    "CONTROLLER",
+    "HAL",
+    "STATE",
+    "RECEIPT",
+  ]),
+  label: z.string().min(1),
+  status: z.enum(["COMPLETED", "REJECTED", "FAILED", "PENDING", "SKIPPED"]),
+  detail: z.string(),
+  module: z.string().min(1),
+});
+export type ExecutionTraceStage = z.infer<typeof ExecutionTraceStageSchema>;
+
+export const DeviceExecutionTraceSchema = z.object({
+  traceId: z.string().min(1),
+  commandId: z.string().min(1),
+  deviceId: z.string().min(1),
+  intent: DeviceIntentSchema,
+  status: DeviceCommandStatusSchema,
+  executionPath: z.string().nullable(),
+  errorCode: z.string().nullable(),
+  message: z.string().nullable(),
+  startedAt: z.string(),
+  completedAt: z.string().nullable(),
+  stages: z.array(ExecutionTraceStageSchema),
+  state: DeviceCloudStateSchema.nullable(),
+});
+export type DeviceExecutionTrace = z.infer<typeof DeviceExecutionTraceSchema>;
+
+export const ProductProfileSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  model: z.string().min(1),
+  deviceModelAliases: z.array(z.string().min(1)).default([]),
+  status: z.enum(["DRAFT", "ACTIVE", "RETIRED"]),
+  controller: z.enum(["ESP32_C3", "ESP32_S3"]),
+  voiceProcessor: z.enum(["CI1302", "CI1303", "NONE"]),
+  ioExpander: z.string().min(1),
+  ioExpansion: IoExpansionConfigSchema,
+  voiceHardwareLink: VoiceHardwareLinkSchema,
+  localControllers: LocalControllerConfigSchema,
+  flashSizeMB: z.number().int().min(4),
+  otaReserved: z.boolean(),
+  remoteTechnology: z.enum([
+    "ESP32_C3_BLE",
+    "2_4G_DEDICATED_RX",
+    "NONE",
+  ]),
+  capabilities: z.array(ProductCapabilitySchema),
+  safetyDefaults: z.object({
+    targetTemperatureMinCelsius: z.number().int().min(0).max(80),
+    targetTemperatureMaxCelsius: z.number().int().min(0).max(80),
+    targetTemperatureDefaultCelsius: z.number().int().min(0).max(80),
+    fanCooldownSeconds: z.number().int().nonnegative().max(900),
+    heaterMaxContinuousMinutes: z.number().int().positive().max(240),
+    dryModeMaxMinutes: z.number().int().positive().max(240),
+    softwareOverTemperatureCelsius: z.number().min(0).max(150).nullable(),
+    hardwareThermalCutoffRequired: z.boolean(),
+    powerOnAllLoadsOff: z.boolean(),
+    heatRequiresFan: z.boolean(),
+    halfDuplexVoice: z.boolean(),
+  }),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type ProductProfile = z.infer<typeof ProductProfileSchema>;
+
+export const VoiceProfileStatusSchema = z.enum([
+  "DRAFT",
+  "RESOURCE_GENERATING",
+  "SAMPLE_VALIDATION",
+  "APPROVED",
+  "RELEASED",
+  "ROLLED_BACK",
+]);
+export type VoiceProfileStatus = z.infer<typeof VoiceProfileStatusSchema>;
+
+export const OfflineVoiceCommandSchema = z.object({
+  id: z.string().min(1),
+  semanticId: z.number().int().min(1).max(65535),
+  phrase: z.string().min(1),
+  aliases: z.array(z.string().min(1)).default([]),
+  intent: DeviceIntentSchema,
+  slots: z.record(z.string(), z.unknown()).default({}),
+  feedbackTone: z.enum(["CONFIRM", "REJECT", "NONE"]).default("CONFIRM"),
+  enabled: z.boolean().default(true),
+});
+export type OfflineVoiceCommand = z.infer<
+  typeof OfflineVoiceCommandSchema
+>;
+
+export const VoiceResourceSchema = z.object({
+  fileName: z.string().min(1),
+  sha256: z.string().regex(/^[a-fA-F0-9]{64}$/),
+  generatedAt: z.string(),
+});
+export type VoiceResource = z.infer<typeof VoiceResourceSchema>;
+
+export const VoiceProfileSchema = z.object({
+  id: z.string().min(1),
+  productProfileId: z.string().min(1),
+  version: z.string().min(1),
+  status: VoiceProfileStatusSchema,
+  wakeWord: z.string().min(1),
+  supportsSeparateAndContinuousSpeech: z.boolean(),
+  personalWakeWordPolicy: z.literal("ON_DEVICE_SELF_LEARNING"),
+  offlineFirst: z.boolean(),
+  commands: z.array(OfflineVoiceCommandSchema),
+  resource: VoiceResourceSchema.nullable(),
+  notes: z.string().default(""),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type VoiceProfile = z.infer<typeof VoiceProfileSchema>;
+
+export const CloneVoiceProfileRequestSchema = z.object({
+  version: z.string().min(1),
+});
+export type CloneVoiceProfileRequest = z.infer<
+  typeof CloneVoiceProfileRequestSchema
+>;
+
+export const VoiceProfileTransitionRequestSchema = z.object({
+  nextStatus: VoiceProfileStatusSchema,
+});
+export type VoiceProfileTransitionRequest = z.infer<
+  typeof VoiceProfileTransitionRequestSchema
+>;
+
+export const Ci1302EventTypeSchema = z.enum([
+  "BOOT",
+  "WAKE",
+  "VAD_START",
+  "VAD_END",
+  "OFFLINE_COMMAND",
+  "OFFLINE_MISS",
+  "PCM_READY",
+  "PLAYBACK_FINISHED",
+  "FAULT",
+]);
+export type Ci1302EventType = z.infer<typeof Ci1302EventTypeSchema>;
+
+export const Ci1302EventSimulationRequestSchema = z.object({
+  deviceId: z.string().min(1).default("demo-bath-heater-001"),
+  productProfileId: z.string().min(1),
+  voiceProfileId: z.string().min(1),
+  eventType: Ci1302EventTypeSchema,
+  semanticId: z.number().int().min(1).max(65535).nullable().optional(),
+  networkOnline: z.boolean().default(true),
+  applyToDevice: z.boolean().default(false),
+});
+export type Ci1302EventSimulationRequest = z.infer<
+  typeof Ci1302EventSimulationRequestSchema
+>;
+
+export const Ci1302EventSimulationResponseSchema = z.object({
+  accepted: z.boolean(),
+  route: z.enum([
+    "LOCAL_CONTROL",
+    "ONLINE_ASR",
+    "NO_ACTION",
+    "NETWORK_UNAVAILABLE",
+    "REJECTED",
+  ]),
+  eventType: Ci1302EventTypeSchema,
+  semanticId: z.number().int().nullable(),
+  matchedCommand: OfflineVoiceCommandSchema.nullable(),
+  reason: z.string(),
+  feedback: z.string(),
+  deviceState: DeviceStateSchema,
+});
+export type Ci1302EventSimulationResponse = z.infer<
+  typeof Ci1302EventSimulationResponseSchema
+>;
+
+export const BleControllerTypeSchema = z.enum([
+  "WALL_PANEL",
+  "HANDHELD_REMOTE",
+]);
+export type BleControllerType = z.infer<typeof BleControllerTypeSchema>;
+
+export const BleLocalControlSimulationRequestSchema = z.object({
+  deviceId: z.string().min(1).default("demo-bath-heater-001"),
+  productProfileId: z.string().min(1),
+  controllerType: BleControllerTypeSchema,
+  controllerId: z.string().min(1).max(64),
+  sequence: z.number().int().min(1).max(65535),
+  bonded: z.boolean().default(true),
+  encrypted: z.boolean().default(true),
+  intent: DeviceIntentSchema,
+  slots: z.record(z.string(), z.unknown()).default({}),
+  applyToDevice: z.boolean().default(false),
+});
+export type BleLocalControlSimulationRequest = z.infer<
+  typeof BleLocalControlSimulationRequestSchema
+>;
+
+export const BleLocalControlSimulationResponseSchema = z.object({
+  accepted: z.boolean(),
+  route: z.enum(["LOCAL_CONTROL", "UNAUTHORIZED", "REJECTED"]),
+  outcome: z.enum(["APPLIED", "VALIDATED", "REJECTED", "DUPLICATE"]),
+  controllerType: BleControllerTypeSchema,
+  controllerId: z.string(),
+  sequence: z.number().int(),
+  intent: DeviceIntentSchema,
+  duplicate: z.boolean(),
+  stateTransmitted: z.boolean(),
+  reason: z.string(),
+  deviceState: DeviceStateSchema,
+});
+export type BleLocalControlSimulationResponse = z.infer<
+  typeof BleLocalControlSimulationResponseSchema
+>;

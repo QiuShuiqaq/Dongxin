@@ -1,139 +1,115 @@
-# 东信智能浴霸 AI联网版 - WiFi模块固件
+# 东信 AI 浴霸 ESP32 固件
 
-## 项目概述
+## 目标架构
 
-ESP32-C3 WiFi联网模块固件，负责东信高端智能浴霸（直流款·AI联网版）的网络通信、云端对接、主控桥接和语音交互。
+ESP32-C3 是量产首选和唯一业务主控，直接负责设备状态机、低压控制接口、WiFi、BLE配网/本地终端、MQTT、传感器和在线音频转发。CI1302负责麦克风、降噪、VAD、离线唤醒/命令和播放。
 
-### 系统链路
-
+```text
+CI1302语音 ─────┐
+BLE墙面板/遥控器 ┼→ C3统一命令队列 → 安全状态机 → direct_control_hal → 3 x PCF8574/GPIO/ADC
+MQTT平台 ───────┘
 ```
-QiuAI AI Gateway ↔ WiFi模块(本固件) ↔ 浴霸主控板MCU
-     (HTTPS+JSON)        (UART固定帧)
-```
 
-### 本固件职责
+新样板不再包含独立浴霸MCU。`uart_bridge`、32字节旧协议和MCU模拟器作为历史兼容/测试资产保留，不是新架构的控制主链路。ESP32-S3构建继续保留为研发对照和量产备选。
 
-| 模块 | 职责 | 当前状态 |
-|------|------|------|
-| wifi_manager | WiFi STA连接、断线重连、IP和信号强度读取 | 已实现首版 |
-| cloud_agent | 设备注册、心跳、状态上报 | 已实现首版 |
-| uart_bridge | UART1与主控板通信、32字节固定帧解析、命令分发 | 等待引脚和最终协议 |
-| voice_engine | 离线固定命令、在线音频上传、TTS播报 | 等待音频硬件定义 |
-| device_state | 设备状态维护，为主控回传和云端上报提供统一结构 | 已实现基础结构 |
+详细基线：
 
-## 硬件规格
+- `../docs/C3单主控系统架构与职责边界 V1.0.md`
+- `../docs/ESP32-C3与CI1302通信协议 V1.0.md`
+- `../docs/ESP32-C3与BLE本地控制终端协议 V1.0.md`
+- `../docs/浴霸控制状态机与安全规则 V1.0.md`
+- `../docs/东信样板硬件接口及验收要求 V1.0.md`
 
-- 主控芯片：ESP32-C3 (RISC-V, 32-bit, 160MHz)
-- 无线：WiFi 2.4GHz 802.11 b/g/n
-- 通信：UART1（与主控板，115200 8N1）
-- 音频：麦克风输入 + 扬声器输出（语音交互）
-- 电源：3.3V（由主板供电）
+## 当前代码状态
+
+| 模块 | 当前状态 |
+|---|---|
+| `wifi_manager` | C3 WiFi STA、断线重连已验证 |
+| `mqtt_agent` | 本地MQTT注册、命令、结果、状态和幂等已验证 |
+| `cloud_agent` | HTTP研发兼容通道 |
+| `device_command` | MQTT/HTTP命令统一进入命令队列，保留旧UART兼容分支 |
+| `command_queue` | 已统一MQTT、CI、BLE、定时和安全来源，当前为同步执行接口 |
+| `device_controller` | 已实现风机/取暖/换气互锁、散热、最长运行、定时和干燥上限 |
+| `direct_control_hal` | SuperMini默认虚拟HAL；真实PCF引脚未冻结时禁止启用 |
+| `pcf8574` | 已实现3颗设备初始化、整字节影子输出、全关和健康检查 |
+| `device_state` | 已维护基础全量状态；NTC有效性和期望/实际状态待样板阶段扩展 |
+| `uart_bridge` | 旧MCU协议测试资产；新架构下不驱动浴霸主控 |
+| `voice_engine` | 当前为桩，待接CI1302 UART控制和I2S PCM |
+| `board_profile` | 支持C3/S3并报告控制、CI和BLE链路 |
+
+当前 C3 SuperMini 返回 `executionPath=LOCAL_VIRTUAL`。它证明命令队列和安全状态机执行，不代表真实PCF电平、驱动或220V负载执行。
 
 ## 开发环境
 
-- ESP-IDF v5.3.2
-- 工具链：riscv32-esp-elf 13.2.0
-- 安装路径：`D:\Program\ESP_IDF\`
+- ESP-IDF v5.3.2：`D:\Espressif\frameworks\esp-idf-v5.3.2`
+- C3开发板：ESP32-C3 SuperMini HW-466AB
+- 串口：COM3
+- 固件目录：`D:\workspace\Dongxin\firmware`
 
-## 编译与烧录
+## 构建、烧录和退出监视器
+
+在 PowerShell 中切换盘符和目录，不能只使用传统CMD的 `cd D:\...`：
 
 ```powershell
-# 1. 配置环境
-# 当前使用手动安装的 Python 虚拟环境，不执行安装向导
-$env:IDF_PATH = "D:\Program\ESP_IDF\esp_idf"
-$env:IDF_TOOLS_PATH = "D:\Program\ESP_IDF\tools"
-$env:IDF_PYTHON_ENV_PATH = "D:\Program\ESP_IDF\python_env"
-$env:IDF_SKIP_CHECK_SUBMODULES = "1"
-
-# 2. 进入固件目录
-cd F:\Workspace_VS\QiuAi-qiye\Dongxin\firmware
-
-# 3. 设置目标芯片（首次构建 C3 时执行）
-idf.py set-target esp32c3
-
-# 4. 编译 C3
-& "D:\Program\ESP_IDF\python_env\Scripts\python.exe" `
-  "D:\Program\ESP_IDF\esp_idf\tools\idf.py" build
-
-# 5. 烧录 C3（COM3改为实际串口号）
-& "D:\Program\ESP_IDF\python_env\Scripts\python.exe" `
-  "D:\Program\ESP_IDF\esp_idf\tools\idf.py" -p COM3 flash
-
-# 6. 串口监视 C3
-& "D:\Program\ESP_IDF\python_env\Scripts\python.exe" `
-  "D:\Program\ESP_IDF\esp_idf\tools\idf.py" -p COM3 monitor
-
-# S3 使用独立构建目录和 sdkconfig.s3，不要覆盖 C3 的 build 目录
-& "D:\Program\ESP_IDF\python_env\Scripts\python.exe" `
-  "D:\Program\ESP_IDF\esp_idf\tools\idf.py" `
-  -B build-s3-verify2 `
-  -D SDKCONFIG="$PWD\sdkconfig.s3" `
-  build
-
-# S3 烧录和串口监视（COM3改为实际串口号）
-& "D:\Program\ESP_IDF\python_env\Scripts\python.exe" `
-  "D:\Program\ESP_IDF\esp_idf\tools\idf.py" `
-  -B build-s3-verify2 -p COM3 flash
-& "D:\Program\ESP_IDF\python_env\Scripts\python.exe" `
-  "D:\Program\ESP_IDF\esp_idf\tools\idf.py" `
-  -B build-s3-verify2 -p COM3 monitor
+Set-Location D:\workspace\Dongxin\firmware
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-and-flash.ps1
 ```
 
-## 目录结构
+菜单选择 `3` 执行构建、烧录和监视。串口监视器中按 `Ctrl+]` 退出；不是 `Ctrl+C`。
 
-```
-firmware/
-├── CMakeLists.txt          # 项目构建配置
-├── README.md               # 本文件
-└── main/
-    ├── CMakeLists.txt      # 主组件构建配置
-    ├── app_main.c          # 主入口（系统初始化+主循环）
-    ├── wifi_manager.c/h    # WiFi管理模块
-    ├── cloud_agent.c/h     # 云端通信代理
-    ├── uart_bridge.c/h     # UART主控桥接
-    ├── voice_engine.c/h    # 语音引擎
-    └── device_state.c/h    # 设备状态管理
+脚本默认使用COM3和D盘ESP-IDF，可通过 `-Port` 覆盖串口。C3首次切换目标选择 `1`，普通构建选择 `2`。
+烧录/监视前脚本会检查端口是否存在；若显示 `no serial ports detected`，先重新插入开发板再执行。
+
+也可以不进入菜单：
+
+```powershell
+.\build-and-flash.ps1 -Action build
+.\build-and-flash.ps1 -Action flash-monitor -Port COM3
+.\build-and-flash.ps1 -Action s3-build
 ```
 
-## 板型选择
+`s3-build` 使用独立的 `build-s3-verify2` 目录，不改变默认C3构建目录。
 
-工程会根据当前构建目录的 ESP-IDF 目标自动选择 C3 或 S3 板级配置：
+## 联调配置
 
-- `build`：`esp32c3`，输出 C3 固件和设备 ID；
-- `build-s3-verify2`：`esp32s3`，输出 S3 自检固件和独立设备 ID。
-
-构建时不需要手动修改 `main/app_config.h` 中的 `DX_TARGET_BOARD`。
-
-## 当前首轮联调范围
-
-本版本先验证 C3 本身能否稳定完成以下链路：
-
-```text
-C3 上电
-  -> 连接 2.4GHz WiFi
-  -> POST /api/device/v1/register
-  -> POST /api/device/v1/heartbeat
-  -> POST /api/device/v1/state
-  -> 后台显示设备在线
-```
-
-请先在 `main/app_config.h` 中填写：
+当前研发环境：
 
 ```c
-#define DX_WIFI_SSID "实际WiFi名称"
-#define DX_WIFI_PASSWORD "实际WiFi密码"
-#define DX_GATEWAY_BASE_URL "http://运行后端电脑的局域网IP:3077"
+#define DX_WIFI_SSID "TP-LINK_3DB722"
+#define DX_WIFI_PASSWORD ""
+#define DX_GATEWAY_BASE_URL "http://192.168.16.146:3077"
+#define DX_MQTT_BROKER_URI "mqtt://192.168.16.146:1883"
 ```
 
-后端地址不能填写 `localhost` 或 `127.0.0.1`。C3 访问电脑服务时必须使用电脑在同一局域网内的 IPv4 地址。
+后端地址必须使用同一局域网电脑IP，不能在C3固件中填写 `localhost` 或 `127.0.0.1`。生产固件不得硬编码家庭WiFi和研发服务器地址，后续由BLE配网和环境配置替代。
 
-## 当前未启用内容
+## 当前代码结构与下一步
 
-- `DX_ENABLE_UART_BRIDGE` 默认关闭，原因是东信尚未确认 C3 与主控板的 TX/RX 引脚和最终串口参数。
-- `DX_ENABLE_AUDIO` 默认关闭，原因是麦克风、扬声器和音频编解码器的具体接线尚未确认。
-- 本版本不在 C3 内运行通用 ASR 或 LLM，也不把任何 API Key 写入固件。
-- 当前状态中的温度、湿度、人感和故障码在主控协议接入前只保留字段，不代表已经从真实传感器读取。
+```text
+main/
+├── command_queue.c/h          统一命令、来源、优先级、幂等和超时
+├── device_controller.c/h      状态变更、互锁、散热、时限和HAL协调
+├── direct_control_hal.c/h     虚拟/真实板级控制接口
+├── pcf8574.c/h                3颗PCF8574低速IO
+├── ci1302_protocol.c/h        下一步：UART事件、CRC、ACK和链路状态
+├── ci1302_audio.c/h           下一步：I2S PCM采集与播放
+├── ble_local_control.c/h      下一步：墙面板/遥控器GATT与绑定
+├── temperature_sensor.c/h     NTC采样、滤波和故障
+└── board_profile.*            C3/S3/东信样板能力和引脚
+```
 
-## 版本历史
+先实现虚拟HAL和测试，再绑定东信样板的真实引脚。危险负载参数不能在无原理图和热测试时猜测。
 
-- v0.2.0 (2026-09-03)：完成 C3 WiFi、设备注册、心跳、基础状态上报和统一状态结构
+## 板型
+
+- `build`：ESP32-C3主线；
+- `build-s3-verify2`：ESP32-S3-N16R8备选；
+- 东信量产样板：原理图确认后新增独立profile，不覆盖SuperMini配置。
+
+## 版本记录
+
+- v0.2.0：C3 WiFi、设备注册、心跳和基础状态；
+- v0.3.0：本地MQTT和文本模拟控制闭环；
+- v0.3.1：旧MCU UART ACK/重试测试资产；
+- v0.4.0：C3单主控统一队列、安全控制器、虚拟HAL和3颗PCF8574驱动；
+- 下一版本：CI1302控制/I2S骨架、BLE本地终端和NTC故障注入。

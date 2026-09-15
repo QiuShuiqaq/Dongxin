@@ -35,6 +35,13 @@ import type {
   UpdateTestSetRequest,
   CreateTestCaseRequest,
   UpdateTestCaseRequest,
+  ProductProfile,
+  VoiceProfile,
+  VoiceProfileStatus,
+  Ci1302EventSimulationRequest,
+  Ci1302EventSimulationResponse,
+  BleLocalControlSimulationRequest,
+  BleLocalControlSimulationResponse,
 } from "@dongxin/shared";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:3077";
@@ -51,6 +58,8 @@ export interface BootstrapData {
   productionCostSettings: ProductionCostSettings;
   logs: SystemLog[];
   deviceState: DeviceState;
+  productProfiles: ProductProfile[];
+  voiceProfiles: VoiceProfile[];
 }
 
 export interface ChatTestResponse {
@@ -282,11 +291,84 @@ export async function getDeviceState(deviceId: string): Promise<DeviceState> {
 export async function sendDeviceCommand(
   deviceId: string,
   input: { intent: string; slots?: Record<string, unknown> },
-): Promise<{ state: DeviceState; command: DeviceCommandRecord }> {
+): Promise<{
+  state: DeviceState;
+  command: DeviceCommandRecord;
+  delivery?: "MQTT" | "QUEUED_FOR_DEVICE";
+}> {
   return request(`/api/devices/${deviceId}/commands`, {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export async function getHardwareConfig(): Promise<{
+  productProfiles: ProductProfile[];
+  voiceProfiles: VoiceProfile[];
+}> {
+  return request("/api/hardware-config");
+}
+
+export async function updateProductProfile(
+  profile: ProductProfile,
+): Promise<ProductProfile> {
+  return request(`/api/product-profiles/${profile.id}`, {
+    method: "PUT",
+    body: JSON.stringify(profile),
+  });
+}
+
+export async function updateVoiceProfile(
+  profile: VoiceProfile,
+): Promise<VoiceProfile> {
+  return request(`/api/voice-profiles/${profile.id}`, {
+    method: "PUT",
+    body: JSON.stringify(profile),
+  });
+}
+
+export async function transitionVoiceProfile(
+  profileId: string,
+  nextStatus: VoiceProfileStatus,
+): Promise<VoiceProfile> {
+  return request(`/api/voice-profiles/${profileId}/transition`, {
+    method: "POST",
+    body: JSON.stringify({ nextStatus }),
+  });
+}
+
+export async function cloneVoiceProfile(
+  profileId: string,
+  version: string,
+): Promise<VoiceProfile> {
+  return request(`/api/voice-profiles/${profileId}/clone`, {
+    method: "POST",
+    body: JSON.stringify({ version }),
+  });
+}
+
+export async function simulateCi1302Event(
+  input: Ci1302EventSimulationRequest,
+): Promise<Ci1302EventSimulationResponse> {
+  return request("/api/hardware-config/ci1302/events/simulate", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function simulateBleLocalControl(
+  input: BleLocalControlSimulationRequest,
+): Promise<BleLocalControlSimulationResponse> {
+  return request("/api/hardware-config/ble/commands/simulate", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getDeviceCommands(
+  deviceId: string,
+): Promise<DeviceCommandRecord[]> {
+  return request(`/api/devices/${deviceId}/commands`);
 }
 
 export async function recordDeviceEvent(

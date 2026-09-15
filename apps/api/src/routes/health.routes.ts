@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { getMqttGatewayStatus } from '../services/mqttGateway.service.js';
 
 export async function registerHealthRoutes(server: FastifyInstance): Promise<void> {
   server.get('/', async () => ({
@@ -13,6 +14,7 @@ export async function registerHealthRoutes(server: FastifyInstance): Promise<voi
   server.get('/api/health', async () => ({
     ok: true,
     service: 'dongxin-ai-lab-api',
+    mqtt: getMqttGatewayStatus(),
     time: new Date().toISOString()
   }));
 }
