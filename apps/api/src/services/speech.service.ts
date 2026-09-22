@@ -2,7 +2,7 @@ import { performance } from "node:perf_hooks";
 import type { ModelProvider } from "@dongxin/shared";
 import { isEnvConfigured } from "../envStore.js";
 import { getProductionCostSettings } from "../repositories/productionCost.repository.js";
-import { findProviderForService, listProviders } from "./provider.service.js";
+import { findProviderForService, getDefaultProviderForService, listProviders } from "./provider.service.js";
 
 export interface SpeechResult {
   status: "COMPLETED" | "NOT_CONFIGURED" | "FAILED";
@@ -124,12 +124,14 @@ export async function transcribeAudio(input: {
 export async function synthesizeSpeech(input: {
   text: string;
   providerId?: string;
+  audioFormat?: string;
 }): Promise<SpeechResult> {
   const started = performance.now();
   const provider = await resolveSpeechProvider("TTS", input.providerId);
   const config = provider
     ? resolveProviderConfig(provider, "TTS")
     : resolveLegacyConfig("TTS", "audio/mp3");
+  const outputFormat = input.audioFormat || config.audioFormat || "mp3";
 
   if (!config.url || (provider?.apiKeyEnv && !config.apiKey)) {
     return notConfiguredResult(
@@ -147,26 +149,18 @@ export async function synthesizeSpeech(input: {
           url: config.url,
           apiKey: config.apiKey,
           timeoutMs: provider?.timeoutMs,
-          body: {
-            model: config.model,
-            input: {
-              text: input.text,
-              voice: config.voice,
-              format: config.audioFormat,
-            },
-            ...(config.requestBody ?? {}),
-          },
+          body: buildDashScopeTtsBody(config, input.text, outputFormat),
         })
       : await requestJson({
           url: buildSpeechUrl(config.url, config.protocol, "TTS"),
           apiKey: config.apiKey,
           timeoutMs: provider?.timeoutMs,
           body: {
+            ...(config.requestBody ?? {}),
             text: input.text,
             model: config.model,
             voice: config.voice,
-            format: config.audioFormat,
-            ...config.requestBody,
+            format: outputFormat,
           },
         });
     const audioBase64 =
@@ -186,7 +180,7 @@ export async function synthesizeSpeech(input: {
       audioMimeType:
         response.audioMimeType ||
         extractAudioMimeType(response.payload, config.responseMimeTypePath) ||
-        `audio/${config.audioFormat || "mp3"}`,
+        `audio/${outputFormat}`,
       latencyMs: Math.round(performance.now() - started),
       costCny: await calculateTtsCost(
         provider,
@@ -211,14 +205,16 @@ async function resolveSpeechProvider(
     return findProviderForService(providers, providerId, serviceType);
   }
 
-  return (
-    providers.find(
-      (provider) =>
-        provider.enabled &&
-        provider.serviceType === serviceType &&
-        (!provider.apiKeyEnv || isEnvConfigured(provider.apiKeyEnv)),
-    ) ?? null
-  );
+  const configured = await getDefaultProviderForService(serviceType);
+  if (configured && (!configured.apiKeyEnv || isEnvConfigured(configured.apiKeyEnv))) {
+    return configured;
+  }
+  return providers.find(
+    (provider) =>
+      provider.enabled &&
+      provider.serviceType === serviceType &&
+      (!provider.apiKeyEnv || isEnvConfigured(provider.apiKeyEnv)),
+  ) ?? configured;
 }
 
 function resolveProviderConfig(
@@ -329,6 +325,29 @@ function isDashScopeTts(
   config: SpeechConfig,
 ): config is SpeechConfig & { url: string } {
   return Boolean(config.url?.includes("/services/audio/tts/SpeechSynthesizer"));
+}
+
+function buildDashScopeTtsBody(
+  config: SpeechConfig,
+  text: string,
+  outputFormat: string,
+): Record<string, unknown> {
+  const configuredBody = config.requestBody ?? {};
+  const configuredInput =
+    configuredBody.input && typeof configuredBody.input === "object" && !Array.isArray(configuredBody.input)
+      ? (configuredBody.input as Record<string, unknown>)
+      : {};
+
+  return {
+    ...configuredBody,
+    model: config.model,
+    input: {
+      ...configuredInput,
+      text,
+      voice: config.voice,
+      format: outputFormat,
+    },
+  };
 }
 
 async function requestJson(input: {

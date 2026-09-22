@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="920" viewBox="0 0 1600 920" role="img" aria-labelledby="title desc">
+  <title id="title">DX-AI-01 PCF8574 24-port IO map</title>
+  <desc id="desc">Three PCF8574 devices at addresses 0x20, 0x21 and 0x22 with assigned, planned and reserved signals.</desc>
+  <defs>
+    <style>
+      .title{font:700 28px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#17313f}.subtitle{font:400 14px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#667984}
+      .bank{fill:#fff;stroke:#8da09a;stroke-width:2}.head1{fill:#176f5a}.head2{fill:#2f668d}.head3{fill:#6a587f}.headText{font:700 21px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#fff}.headSub{font:400 12px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#dfeee9}
+      .row{fill:#fff;stroke:#dfe6e3;stroke-width:1}.danger{fill:#fff4f1}.reserved{fill:#f5f7f7}.input{fill:#f3f8fc}.port{font:700 13px Consolas,monospace;fill:#28404a}.sig{font:700 14px Consolas,monospace;fill:#213640}.cn{font:400 13px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#526872}.tag{font:700 10px 'Microsoft YaHei','Segoe UI',sans-serif}.note{font:400 12px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#657982}
+    </style>
+  </defs>
+  <rect width="1600" height="920" fill="#eef3f1"/>
+  <text x="58" y="56" class="title">3 × PCF8574 · 24路IO规划</text>
+  <text x="58" y="84" class="subtitle">I2C 100kHz · 3.3V上拉 · 地址0x20/0x21/0x22 · 输出默认高电平（功能关闭）</text>
+
+  <g transform="translate(54 126)">
+    <rect width="470" height="646" rx="9" class="bank"/>
+    <path d="M9 0 H461 Q470 0 470 9 V88 H0 V9 Q0 0 9 0" class="head1"/>
+    <text x="24" y="38" class="headText">U1 · 0x20 · 负载逻辑输出</text>
+    <text x="24" y="67" class="headSub">所有输出低有效；驱动后接LED/后续功率板</text>
+    <g transform="translate(14 104)">
+      <g transform="translate(0 0)"><rect width="442" height="62" rx="4" class="row"/><text x="14" y="25" class="port">P0</text><text x="58" y="25" class="sig">LIGHT_OUT_N</text><text x="58" y="47" class="cn">照明驱动</text><text x="417" y="36" text-anchor="end" class="tag" fill="#176f5a">已分配</text></g>
+      <g transform="translate(0 66)"><rect width="442" height="62" rx="4" class="row"/><text x="14" y="25" class="port">P1</text><text x="58" y="25" class="sig">FAN_OUT_N</text><text x="58" y="47" class="cn">吹风电机驱动 · 取暖前置</text><text x="417" y="36" text-anchor="end" class="tag" fill="#176f5a">互锁</text></g>
+      <g transform="translate(0 132)"><rect width="442" height="62" rx="4" class="row"/><text x="14" y="25" class="port">P2</text><text x="58" y="25" class="sig">VENTILATION_OUT_N</text><text x="58" y="47" class="cn">换气电机驱动</text><text x="417" y="36" text-anchor="end" class="tag" fill="#176f5a">互锁</text></g>
+      <g transform="translate(0 198)"><rect width="442" height="62" rx="4" class="danger"/><text x="14" y="25" class="port">P3</text><text x="58" y="25" class="sig">HEAT_WEAK_OUT_N</text><text x="58" y="47" class="cn">PTC弱暖逻辑 · 双重使能</text><text x="417" y="36" text-anchor="end" class="tag" fill="#b6433e">危险</text></g>
+      <g transform="translate(0 264)"><rect width="442" height="62" rx="4" class="danger"/><text x="14" y="25" class="port">P4</text><text x="58" y="25" class="sig">HEAT_STRONG_OUT_N</text><text x="58" y="47" class="cn">PTC强暖逻辑 · 双重使能</text><text x="417" y="36" text-anchor="end" class="tag" fill="#b6433e">危险</text></g>
+      <g transform="translate(0 330)"><rect width="442" height="62" rx="4" class="reserved"/><text x="14" y="25" class="port">P5</text><text x="58" y="25" class="sig">NIGHT_LIGHT_OUT_N</text><text x="58" y="47" class="cn">夜灯预留</text><text x="417" y="36" text-anchor="end" class="tag" fill="#718087">预留</text></g>
+      <g transform="translate(0 396)"><rect width="442" height="62" rx="4" class="reserved"/><text x="14" y="25" class="port">P6</text><text x="58" y="25" class="sig">PURIFY_OUT_N</text><text x="58" y="47" class="cn">等离子净化预留</text><text x="417" y="36" text-anchor="end" class="tag" fill="#718087">预留</text></g>
+      <g transform="translate(0 462)"><rect width="442" height="62" rx="4" class="reserved"/><text x="14" y="25" class="port">P7</text><text x="58" y="25" class="sig">AUX_LOAD_1_N</text><text x="58" y="47" class="cn">辅助负载预留</text><text x="417" y="36" text-anchor="end" class="tag" fill="#718087">预留</text></g>
+    </g>
+  </g>
+
+  <g transform="translate(565 126)">
+    <rect width="470" height="646" rx="9" class="bank"/>
+    <path d="M9 0 H461 Q470 0 470 9 V88 H0 V9 Q0 0 9 0" class="head2"/>
+    <text x="24" y="38" class="headText">U2 · 0x21 · 摆叶与辅助输出</text>
+    <text x="24" y="67" class="headSub">摆叶时序待电机冻结；其余端口保留扩展能力</text>
+    <g transform="translate(14 104)">
+      <g transform="translate(0 0)"><rect width="442" height="62" rx="4" class="row"/><text x="14" y="25" class="port">P0</text><text x="58" y="25" class="sig">SWING_A_N</text><text x="58" y="47" class="cn">摆叶电机相位A</text><text x="417" y="36" text-anchor="end" class="tag" fill="#c07017">规划</text></g>
+      <g transform="translate(0 66)"><rect width="442" height="62" rx="4" class="row"/><text x="14" y="25" class="port">P1</text><text x="58" y="25" class="sig">SWING_B_N</text><text x="58" y="47" class="cn">摆叶电机相位B</text><text x="417" y="36" text-anchor="end" class="tag" fill="#c07017">规划</text></g>
+      <g transform="translate(0 132)"><rect width="442" height="62" rx="4" class="row"/><text x="14" y="25" class="port">P2</text><text x="58" y="25" class="sig">SWING_C_N</text><text x="58" y="47" class="cn">摆叶电机相位C</text><text x="417" y="36" text-anchor="end" class="tag" fill="#c07017">规划</text></g>
+      <g transform="translate(0 198)"><rect width="442" height="62" rx="4" class="row"/><text x="14" y="25" class="port">P3</text><text x="58" y="25" class="sig">SWING_D_N</text><text x="58" y="47" class="cn">摆叶电机相位D</text><text x="417" y="36" text-anchor="end" class="tag" fill="#c07017">规划</text></g>
+      <g transform="translate(0 264)"><rect width="442" height="62" rx="4" class="reserved"/><text x="14" y="25" class="port">P4</text><text x="58" y="25" class="sig">BUZZER_OUT_N</text><text x="58" y="47" class="cn">本机提示器预留</text><text x="417" y="36" text-anchor="end" class="tag" fill="#718087">预留</text></g>
+      <g transform="translate(0 330)"><rect width="442" height="62" rx="4" class="row"/><text x="14" y="25" class="port">P5</text><text x="58" y="25" class="sig">STATUS_LED_OUT_N</text><text x="58" y="47" class="cn">主板状态灯</text><text x="417" y="36" text-anchor="end" class="tag" fill="#718087">预留</text></g>
+      <g transform="translate(0 396)"><rect width="442" height="62" rx="4" class="reserved"/><text x="14" y="25" class="port">P6</text><text x="58" y="25" class="sig">AUX_OUT_2_N</text><text x="58" y="47" class="cn">扩展输出预留</text><text x="417" y="36" text-anchor="end" class="tag" fill="#718087">预留</text></g>
+      <g transform="translate(0 462)"><rect width="442" height="62" rx="4" class="reserved"/><text x="14" y="25" class="port">P7</text><text x="58" y="25" class="sig">AUX_OUT_3_N</text><text x="58" y="47" class="cn">扩展输出预留</text><text x="417" y="36" text-anchor="end" class="tag" fill="#718087">预留</text></g>
+    </g>
+  </g>
+
+  <g transform="translate(1076 126)">
+    <rect width="470" height="646" rx="9" class="bank"/>
+    <path d="M9 0 H461 Q470 0 470 9 V88 H0 V9 Q0 0 9 0" class="head3"/>
+    <text x="24" y="38" class="headText">U3 · 0x22 · 输入与扩展</text>
+    <text x="24" y="67" class="headSub">输入模式先写1释放端口；建议INT接C3或预留</text>
+    <g transform="translate(14 104)">
+      <g transform="translate(0 0)"><rect width="442" height="62" rx="4" class="input"/><text x="14" y="25" class="port">P0</text><text x="58" y="25" class="sig">RADAR_PRESENCE_IN</text><text x="58" y="47" class="cn">雷达/人感数字输入 · 高有效</text><text x="417" y="36" text-anchor="end" class="tag" fill="#2f668d">输入</text></g>
+      <g transform="translate(0 66)"><rect width="442" height="62" rx="4" class="danger"/><text x="14" y="25" class="port">P1</text><text x="58" y="25" class="sig">THERMAL_CUTOFF_FB</text><text x="58" y="47" class="cn">硬件温断反馈 · 高有效</text><text x="417" y="36" text-anchor="end" class="tag" fill="#b6433e">安全输入</text></g>
+      <g transform="translate(0 132)"><rect width="442" height="62" rx="4" class="input"/><text x="14" y="25" class="port">P2</text><text x="58" y="25" class="sig">SWING_HOME_IN_N</text><text x="58" y="47" class="cn">摆叶归零检测 · 低有效</text><text x="417" y="36" text-anchor="end" class="tag" fill="#2f668d">输入</text></g>
+      <g transform="translate(0 198)"><rect width="442" height="62" rx="4" class="reserved"/><text x="14" y="25" class="port">P3</text><text x="58" y="25" class="sig">FILTER_DETECT_IN_N</text><text x="58" y="47" class="cn">滤网/维护检测预留</text><text x="417" y="36" text-anchor="end" class="tag" fill="#718087">预留</text></g>
+      <g transform="translate(0 264)"><rect width="442" height="62" rx="4" class="reserved"/><text x="14" y="25" class="port">P4</text><text x="58" y="25" class="sig">AUX_IN_1</text><text x="58" y="47" class="cn">数字输入预留1</text><text x="417" y="36" text-anchor="end" class="tag" fill="#718087">预留</text></g>
+      <g transform="translate(0 330)"><rect width="442" height="62" rx="4" class="reserved"/><text x="14" y="25" class="port">P5</text><text x="58" y="25" class="sig">AUX_IN_2</text><text x="58" y="47" class="cn">数字输入预留2</text><text x="417" y="36" text-anchor="end" class="tag" fill="#718087">预留</text></g>
+      <g transform="translate(0 396)"><rect width="442" height="62" rx="4" class="reserved"/><text x="14" y="25" class="port">P6</text><text x="58" y="25" class="sig">AUX_IO_1</text><text x="58" y="47" class="cn">通用IO预留1</text><text x="417" y="36" text-anchor="end" class="tag" fill="#718087">预留</text></g>
+      <g transform="translate(0 462)"><rect width="442" height="62" rx="4" class="reserved"/><text x="14" y="25" class="port">P7</text><text x="58" y="25" class="sig">AUX_IO_2</text><text x="58" y="47" class="cn">通用IO预留2</text><text x="417" y="36" text-anchor="end" class="tag" fill="#718087">预留</text></g>
+    </g>
+  </g>
+
+  <rect x="54" y="802" width="1492" height="80" rx="7" fill="#223c48"/>
+  <text x="78" y="834" style="font:700 14px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#fff">电气约束</text>
+  <text x="78" y="861" style="font:400 13px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#dce7eb">PCF8574仅驱动低压逻辑；每路输出须缓冲。弱暖/强暖还受C3原生LOAD_ENABLE、硬件温控器和保险丝保护。上电先保持LOAD_ENABLE关闭，再向三颗PCF写0xFF。</text>
+</svg>

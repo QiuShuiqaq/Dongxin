@@ -133,6 +133,59 @@ export async function publishQueuedDeviceCommand(command: DeviceCommandRecord): 
   }
 }
 
+export async function publishVoiceTestControl(input: {
+  deviceId: string;
+  testSessionId: string;
+  action: 'start' | 'stop';
+  recordSeconds: number;
+  mode: 'FULL_PIPELINE' | 'ASR_ONLY';
+}): Promise<void> {
+  const envelope = {
+    version: '1.0',
+    messageId: `msg_${randomUUID()}`,
+    deviceId: input.deviceId,
+    sentAt: new Date().toISOString(),
+    data: {
+      type: 'voice_test',
+      action: input.action,
+      testSessionId: input.testSessionId,
+      recordSeconds: input.recordSeconds,
+      synthesizeSpeech: false,
+      mode: input.mode
+    }
+  };
+  await publish(
+    `dongxin/v1/devices/${input.deviceId}/down/voice-test`,
+    JSON.stringify(envelope),
+    1
+  );
+}
+
+export async function publishAudioTestControl(input: {
+  deviceId: string;
+  testId: string;
+  action: 'play' | 'stop';
+  audioPath?: string;
+}): Promise<void> {
+  const envelope = {
+    version: '1.0',
+    messageId: `msg_${randomUUID()}`,
+    deviceId: input.deviceId,
+    sentAt: new Date().toISOString(),
+    data: {
+      type: 'audio_test',
+      action: input.action,
+      testId: input.testId,
+      audioPath: input.audioPath ?? null
+    }
+  };
+  await publish(
+    `dongxin/v1/devices/${input.deviceId}/down/audio-test`,
+    JSON.stringify(envelope),
+    1
+  );
+}
+
 async function handleUpstreamMessage(topic: string, payload: Buffer): Promise<void> {
   const topicMatch = topic.match(/^dongxin\/v1\/devices\/([^/]+)\/up\/([^/]+)$/);
   if (!topicMatch) {
@@ -163,6 +216,12 @@ async function handleUpstreamMessage(topic: string, payload: Buffer): Promise<vo
       return;
     case 'command-result':
       await handleDeviceCommandResult(body);
+      return;
+    case 'voice-test':
+      await (await import('./voiceTest.service.js')).handleVoiceTestDeviceStatus(body);
+      return;
+    case 'audio-test':
+      await (await import('./voiceModuleTest.service.js')).handleAudioTestDeviceStatus(body);
       return;
     default:
       throw new Error(`Unsupported upstream message type: ${messageType}`);

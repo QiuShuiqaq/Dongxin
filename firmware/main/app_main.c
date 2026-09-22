@@ -60,6 +60,9 @@ extern void device_state_init(void);
 
 void app_main(void)
 {
+    /* Hold the Lichuang power amplifier off before slower subsystems start. */
+    voice_engine_preinit();
+
     const dx_board_profile_t *board = dx_board_profile_get();
 
     ESP_LOGI(TAG, "========================================");

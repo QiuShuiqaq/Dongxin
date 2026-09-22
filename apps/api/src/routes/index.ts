@@ -14,11 +14,15 @@ import { registerPromptsRoutes } from './prompts.routes.js';
 import { registerProvidersRoutes } from './providers.routes.js';
 import { registerTestSetsRoutes } from './testSets.routes.js';
 import { registerVoiceRoutes } from './voice.routes.js';
+import { registerVoiceTestRoutes } from './voiceTests.routes.js';
+import { registerVoiceModuleTestRoutes } from './voiceModuleTests.routes.js';
 import { registerConsoleRoutes } from './consoles.routes.js';
+import { registerAiTestingRoutes } from './aiTesting.routes.js';
 
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await registerHealthRoutes(server);
   await registerConsoleRoutes(server);
+  await registerAiTestingRoutes(server);
   await registerHardwareConfigRoutes(server);
   await registerBootstrapRoutes(server);
   await registerProvidersRoutes(server);
@@ -28,6 +32,8 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await registerDeviceAccessRoutes(server);
   await registerDevicesRoutes(server);
   await registerVoiceRoutes(server);
+  await registerVoiceTestRoutes(server);
+  await registerVoiceModuleTestRoutes(server);
   await registerTestSetsRoutes(server);
   await registerKnowledgeRoutes(server);
   await registerProactiveRoutes(server);

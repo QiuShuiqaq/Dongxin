@@ -8,7 +8,8 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "concurrently -n mqtt,api,rd,ops -c yellow,blue,green,cyan \"npm run dev -w @dongxin/mqtt-broker\" \"npm run dev -w @dongxin/api\" \"npm run dev -w @dongxin/development-console\" \"npm run dev -w @dongxin/operations-console\"",
+    "dev": "concurrently -n mqtt,api,agent,rd,ops -c yellow,blue,magenta,green,cyan \"npm run dev -w @dongxin/mqtt-broker\" \"npm run dev -w @dongxin/api\" \"npm run dev -w @dongxin/device-agent\" \"npm run dev -w @dongxin/development-console\" \"npm run dev -w @dongxin/operations-console\"",
+    "dev:agent": "npm run dev -w @dongxin/device-agent",
     "dev:legacy-web": "npm run dev -w @dongxin/web",
     "mqtt:broker": "npm run start -w @dongxin/mqtt-broker",
     "mqtt:smoke": "npm run smoke -w @dongxin/mqtt-broker",

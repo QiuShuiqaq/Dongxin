@@ -15,6 +15,7 @@ apps/*/.env
 firmware/build/
 firmware/build-*/
 firmware/build-*.log
+firmware/managed_components/
 firmware/sdkconfig*.old
 data/runtime-*.json
 data/devices.json
@@ -23,4 +24,9 @@ data/device-commands.json
 data/knowledge-documents.json
 data/proactive-settings.json
 data/system-logs.json
+data/voice-test-sessions.json
+data/ai-service-settings.json
+data/asr-test-datasets.json
+data/batch-test-runs.json
+data/test-artifacts/
 data/*.tmp

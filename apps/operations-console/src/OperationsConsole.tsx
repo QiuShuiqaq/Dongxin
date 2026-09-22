@@ -1,5 +1,6 @@
 import {
   AlertOutlined,
+  ApiOutlined,
   AppstoreOutlined,
   AuditOutlined,
   BellOutlined,
@@ -13,6 +14,7 @@ import {
   HistoryOutlined,
   ReloadOutlined,
   RocketOutlined,
+  QrcodeOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
   TeamOutlined,
@@ -26,11 +28,12 @@ import { useEffect, useMemo, useState } from "react";
 import { getOperationsConsole } from "./api";
 import type { OperationsConsoleData } from "./api";
 
-type Section = "overview" | "devices" | "bindings" | "alerts" | "releases" | "ai" | "audit" | "system";
+type Section = "overview" | "devices" | "provisioning" | "bindings" | "alerts" | "releases" | "ai" | "audit" | "system";
 
 const sectionMeta: Record<Section, { label: string; description: string }> = {
   overview: { label: "运营总览", description: "生产设备、服务健康和待处理事项" },
   devices: { label: "设备中心", description: "设备档案、在线状态、固件与通信质量" },
+  provisioning: { label: "生产接入", description: "出厂身份、自动注册、首次上线与二维码状态" },
   bindings: { label: "激活与绑定", description: "设备激活、二维码和用户归属管理" },
   alerts: { label: "告警与售后", description: "故障告警、处理记录和售后诊断" },
   releases: { label: "版本发布", description: "审批后的产品版本、灰度和回滚" },
@@ -62,7 +65,7 @@ export default function OperationsConsole() {
       <aside className="ops-sidebar">
         <div className="ops-brand"><div className="ops-mark">DX</div><div><strong>东信设备运营平台</strong><span>Operations Console</span></div></div>
         <nav>
-          <NavGroup label="运营"><Nav active={section === "overview"} icon={<AppstoreOutlined />} label="运营总览" onClick={() => navigate("overview")} /><Nav active={section === "devices"} icon={<DesktopOutlined />} label="设备中心" onClick={() => navigate("devices")} /><Nav active={section === "bindings"} icon={<TeamOutlined />} label="激活与绑定" onClick={() => navigate("bindings")} /></NavGroup>
+          <NavGroup label="运营"><Nav active={section === "overview"} icon={<AppstoreOutlined />} label="运营总览" onClick={() => navigate("overview")} /><Nav active={section === "devices"} icon={<DesktopOutlined />} label="设备中心" onClick={() => navigate("devices")} /><Nav active={section === "provisioning"} icon={<ApiOutlined />} label="生产接入" onClick={() => navigate("provisioning")} /><Nav active={section === "bindings"} icon={<TeamOutlined />} label="激活与绑定" onClick={() => navigate("bindings")} /></NavGroup>
           <NavGroup label="服务"><Nav active={section === "alerts"} icon={<AlertOutlined />} label="告警与售后" badge={data?.metrics.openAlerts} onClick={() => navigate("alerts")} /><Nav active={section === "releases"} icon={<RocketOutlined />} label="版本发布" onClick={() => navigate("releases")} /><Nav active={section === "ai"} icon={<CloudServerOutlined />} label="AI 运营" onClick={() => navigate("ai")} /></NavGroup>
           <NavGroup label="管理"><Nav active={section === "audit"} icon={<AuditOutlined />} label="审计安全" onClick={() => navigate("audit")} /><Nav active={section === "system"} icon={<SettingOutlined />} label="基础设施" onClick={() => navigate("system")} /></NavGroup>
         </nav>
@@ -74,6 +77,7 @@ export default function OperationsConsole() {
           {loading && !data ? <Skeleton active paragraph={{ rows: 12 }} /> : null}
           {data && section === "overview" ? <Overview data={data} onNavigate={navigate} /> : null}
           {data && section === "devices" ? <Devices data={data} filter={deviceFilter} onFilter={setDeviceFilter} /> : null}
+          {data && section === "provisioning" ? <Provisioning data={data} /> : null}
           {data && section === "bindings" ? <Bindings data={data} /> : null}
           {data && section === "alerts" ? <Alerts alerts={data.alerts} /> : null}
           {data && section === "releases" ? <Releases products={data.products} /> : null}
@@ -110,6 +114,52 @@ function Devices({ data, filter, onFilter }: { data: OperationsConsoleData; filt
     { title: "状态", dataIndex: "status", width: 100, render: (value: string) => <DeviceStatus status={value} /> },
     { title: "最近更新", dataIndex: "updatedAt", width: 180, render: formatDate },
   ]} /></section></div>;
+}
+
+function Provisioning({ data }: { data: OperationsConsoleData }) {
+  const registered = data.devices.filter((device) => device.protocol === "MQTT");
+  const online = registered.filter((device) => device.status === "ONLINE");
+  const legacyIdentity = registered.filter((device) => isDevelopmentIdentity(device));
+  const engineeringUrl = import.meta.env.VITE_ENGINEERING_CONSOLE_URL || "http://127.0.0.1:3010/#flashing";
+  return <div className="ops-stack">
+    <Alert type="info" showIcon title="自动接入与用户绑定是两个独立步骤" description="设备凭独立密钥联网后自动创建设备档案；消费者仍需扫描机身二维码完成归属绑定。" />
+    <section className="ops-metrics">
+      <Metric label="已自动登记" value={String(registered.length)} detail="MQTT 注册事件" />
+      <Metric label="当前在线" value={String(online.length)} detail="首次上线后持续心跳" />
+      <Metric label="研发静态身份" value={String(legacyIdentity.length)} detail="量产前必须替换" tone={legacyIdentity.length ? "warn" : undefined} />
+      <Metric label="量产独立凭证" value={String(registered.length - legacyIdentity.length)} detail="DeviceSecret / NVS" />
+    </section>
+    <section className="ops-panel provisioning-flow-section">
+      <PanelTitle title="生产接入流程" action={<Button href={engineeringUrl} target="_blank" icon={<DeploymentUnitOutlined />}>打开研发烧录台</Button>} />
+      <div className="provisioning-flow">
+        <ProvisionStep index="01" title="烧录公共固件" detail="同型号共用经过审核的固件镜像" />
+        <ProvisionStep index="02" title="注入唯一身份" detail="序列号、DeviceName、独立 DeviceSecret" />
+        <ProvisionStep index="03" title="联网自动注册" detail="IoT 鉴权通过后平台自动建档" />
+        <ProvisionStep index="04" title="工厂自检" detail="网络、IO、音频和安全项留档" />
+        <ProvisionStep index="05" title="生成机身二维码" detail="消费者扫码绑定设备归属" icon={<QrcodeOutlined />} />
+      </div>
+    </section>
+    <section className="ops-panel">
+      <PanelTitle title="最近接入设备" action={<Tag>{registered.length} 台</Tag>} />
+      <Table rowKey="id" pagination={false} scroll={{ x: 900 }} dataSource={registered} columns={[
+        { title: "设备 ID", dataIndex: "id", width: 260, render: (value: string) => <code>{value}</code> },
+        { title: "产品型号", dataIndex: "model", width: 230 },
+        { title: "身份来源", width: 130, render: (_: unknown, device: DeviceProfile) => isDevelopmentIdentity(device) ? <Tag color="orange">研发静态凭证</Tag> : <Tag color="green">独立凭证</Tag> },
+        { title: "联网状态", dataIndex: "status", width: 110, render: (value: string) => <Badge status={value === "ONLINE" ? "success" : "default"} text={value === "ONLINE" ? "在线" : "离线"} /> },
+        { title: "首次登记", dataIndex: "createdAt", width: 170, render: formatDate },
+        { title: "消费者归属", width: 120, render: () => <Tag>未绑定</Tag> },
+      ]} />
+    </section>
+    <Alert type={legacyIdentity.length ? "warning" : "success"} showIcon title={legacyIdentity.length ? "当前样板仍使用固件内置的研发凭证" : "当前设备均使用独立身份"} description={legacyIdentity.length ? "多块板直接刷同一镜像会被平台识别为同一台设备。量产流程必须增加唯一 NVS 身份分区注入，不能把产品级公共密钥写进设备。" : "设备身份已满足量产接入要求。"} />
+  </div>;
+}
+
+function ProvisionStep({ index, title, detail, icon }: { index: string; title: string; detail: string; icon?: ReactNode }) {
+  return <div className="provision-step"><span>{icon || index}</span><strong>{title}</strong><small>{detail}</small></div>;
+}
+
+function isDevelopmentIdentity(device: DeviceProfile): boolean {
+  return device.id === "DX-C3-LICHUANG-AUDIO-001" || device.id === "DX-C3-SUPERMINI-HW466AB-001" || device.id.endsWith("-DEVKIT-001");
 }
 
 function Bindings({ data }: { data: OperationsConsoleData }) {

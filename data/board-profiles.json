@@ -45,6 +45,46 @@
     "updatedAt": "2026-09-14T10:30:00.000Z"
   },
   {
+    "id": "esp32-c3-lichuang-audio",
+    "productProfileId": "dx-ai-bath-c3-ci1302-v1",
+    "name": "立创实战派 ESP32-C3 音频板",
+    "revision": "COM5 实板验证",
+    "role": "DEVELOPMENT",
+    "controller": "ESP32_C3",
+    "lifecycle": "ACTIVE",
+    "executionMode": "LOCAL_VIRTUAL",
+    "loadVoltageScope": "LOGIC_ONLY",
+    "flashSizeMB": 8,
+    "summary": "当前COM5音频实板，验证麦克风、PCM上传、ASR、语义路由与MQTT控制闭环；功放固定关闭。",
+    "pins": [
+      { "id": "lc-3v3", "position": 1, "side": "LEFT", "label": "3V3", "gpio": null, "signal": "3V3", "direction": "POWER", "electrical": "3.3V", "target": "开发板供电", "bootConstraint": "禁止接入5V信号", "defaultLevel": "N/A", "status": "VERIFIED", "evidence": "COM5实板已启动" },
+      { "id": "lc-gnd", "position": 2, "side": "LEFT", "label": "GND", "gpio": null, "signal": "GND", "direction": "GROUND", "electrical": "0V", "target": "公共地", "bootConstraint": "外设必须共地", "defaultLevel": "N/A", "status": "VERIFIED", "evidence": "USB供电验证" },
+      { "id": "lc-gpio0", "position": 3, "side": "LEFT", "label": "GPIO0", "gpio": 0, "signal": "CODEC_I2C_SDA", "direction": "BIDIRECTIONAL", "electrical": "3.3V open-drain", "target": "ES8311 SDA", "bootConstraint": "板载音频专用", "defaultLevel": "HIGH", "status": "VERIFIED", "evidence": "app_config.h: DX_LICHUANG_I2C_SDA_GPIO" },
+      { "id": "lc-gpio1", "position": 4, "side": "LEFT", "label": "GPIO1", "gpio": 1, "signal": "CODEC_I2C_SCL", "direction": "OUTPUT", "electrical": "3.3V open-drain", "target": "ES8311 SCL", "bootConstraint": "板载音频专用", "defaultLevel": "HIGH", "status": "VERIFIED", "evidence": "app_config.h: DX_LICHUANG_I2C_SCL_GPIO" },
+      { "id": "lc-gpio7", "position": 5, "side": "LEFT", "label": "GPIO7", "gpio": 7, "signal": "I2S_ADC_DIN", "direction": "INPUT", "electrical": "3.3V CMOS", "target": "ES8311麦克风数据", "bootConstraint": "板载音频专用", "defaultLevel": "HIGH_Z", "status": "VERIFIED", "evidence": "真实PCM采集及ASR通过" },
+      { "id": "lc-gpio8", "position": 6, "side": "LEFT", "label": "GPIO8", "gpio": 8, "signal": "I2S_BCLK", "direction": "OUTPUT", "electrical": "3.3V CMOS", "target": "ES8311位时钟", "bootConstraint": "Strapping脚，外部电路不得改变启动电平", "defaultLevel": "HIGH", "status": "VERIFIED", "evidence": "真实PCM采集及ASR通过" },
+      { "id": "lc-gpio9", "position": 1, "side": "RIGHT", "label": "GPIO9", "gpio": 9, "signal": "RECORD_BUTTON", "direction": "INPUT", "electrical": "3.3V CMOS，上拉", "target": "自定义录音按键", "bootConstraint": "低电平触发；按住上电可能影响启动", "defaultLevel": "HIGH", "status": "VERIFIED", "evidence": "实体按键录音已验证" },
+      { "id": "lc-gpio10", "position": 2, "side": "RIGHT", "label": "GPIO10", "gpio": 10, "signal": "I2S_MCLK", "direction": "OUTPUT", "electrical": "3.3V CMOS", "target": "ES8311主时钟", "bootConstraint": "板载音频专用", "defaultLevel": "LOW", "status": "VERIFIED", "evidence": "真实PCM采集及ASR通过" },
+      { "id": "lc-gpio11", "position": 3, "side": "RIGHT", "label": "GPIO11", "gpio": 11, "signal": "I2S_DAC_DOUT", "direction": "OUTPUT", "electrical": "3.3V CMOS", "target": "ES8311播放数据，当前禁用", "bootConstraint": "本阶段禁止播放", "defaultLevel": "LOW", "status": "ASSIGNED", "evidence": "固件未创建TX通道" },
+      { "id": "lc-gpio12", "position": 4, "side": "RIGHT", "label": "GPIO12", "gpio": 12, "signal": "I2S_WS", "direction": "OUTPUT", "electrical": "3.3V CMOS", "target": "ES8311帧时钟", "bootConstraint": "板载音频专用", "defaultLevel": "LOW", "status": "VERIFIED", "evidence": "真实PCM采集及ASR通过" },
+      { "id": "lc-gpio13", "position": 5, "side": "RIGHT", "label": "GPIO13", "gpio": 13, "signal": "PA_ENABLE", "direction": "OUTPUT", "electrical": "3.3V CMOS", "target": "板载功放使能", "bootConstraint": "上电必须保持低电平", "defaultLevel": "LOW", "status": "VERIFIED", "evidence": "voice_engine_preinit强制关闭" },
+      { "id": "lc-usb", "position": 6, "side": "RIGHT", "label": "USB", "gpio": null, "signal": "USB_SERIAL", "direction": "BIDIRECTIONAL", "electrical": "USB 2.0", "target": "COM5烧录与日志", "bootConstraint": "调试期间保持可访问", "defaultLevel": "N/A", "status": "VERIFIED", "evidence": "2026-09-21烧录成功" }
+    ],
+    "buses": [
+      { "id": "lc-usb-bus", "bus": "USB", "name": "USB串口", "endpoint": "COM5 ↔ ESP32-C3", "parameters": "115200bps日志；460800bps烧录", "status": "VERIFIED" },
+      { "id": "lc-codec-i2c", "bus": "I2C", "name": "ES8311控制", "endpoint": "GPIO0/GPIO1 ↔ ES8311", "parameters": "100kHz", "status": "VERIFIED" },
+      { "id": "lc-codec-i2s", "bus": "I2S", "name": "麦克风PCM", "endpoint": "GPIO7/8/10/12 ↔ ES8311", "parameters": "16kHz / 16bit / mono", "status": "VERIFIED" },
+      { "id": "lc-wireless", "bus": "BLE", "name": "2.4GHz无线能力", "endpoint": "ESP32-C3内置WiFi/BLE", "parameters": "WiFi已验证；BLE未用于本次音频测试", "status": "ASSIGNED" }
+    ],
+    "ioPorts": [],
+    "knownConstraints": [
+      "GPIO13功放使能固定为低，当前版本不得播放音乐、Echo或TTS",
+      "当前只验证板载麦克风和云端语音链路，不连接传感器或真实负载",
+      "LOCAL_VIRTUAL执行成功不等于量产板220V负载验收通过"
+    ],
+    "updatedAt": "2026-09-21T02:55:00.000Z"
+  },
+  {
     "id": "dx-ai-01-mainboard-rev-a",
     "productProfileId": "dx-ai-bath-c3-ci1302-v1",
     "name": "DX-AI-01 Mainboard",

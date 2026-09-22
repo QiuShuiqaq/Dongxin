@@ -1,0 +1,14 @@
+menu "Dongxin board configuration"
+
+choice DX_BOARD_PROFILE
+    prompt "ESP32-C3 development board"
+    default DX_BOARD_C3_SUPERMINI
+
+    config DX_BOARD_C3_SUPERMINI
+        bool "ESP32-C3 SuperMini"
+
+    config DX_BOARD_C3_LICHUANG_AUDIO
+        bool "Lichuang ESP32-C3 audio board"
+endchoice
+
+endmenu

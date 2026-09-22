@@ -20,7 +20,7 @@ broker.authenticate = (client, usernameBuffer, passwordBuffer, done) => {
 broker.authorizePublish = (client, packet, done) => {
   const identity = client?.id || '';
   const allowed = isGatewayClient(client)
-    ? /^dongxin\/v1\/devices\/[^/]+\/down\/(command|config)$/.test(packet.topic)
+    ? /^dongxin\/v1\/devices\/[^/]+\/down\/(command|config|voice-test|audio-test)$/.test(packet.topic)
     : packet.topic.startsWith(`dongxin/v1/devices/${identity}/up/`);
   done(allowed ? null : new Error(`Publish denied for ${identity}`));
 };
@@ -58,6 +58,7 @@ function isGatewayClient(client: Client | null): boolean {
 function readDeviceCredentials(): Map<string, string> {
   const fallback = {
     'DX-C3-SUPERMINI-HW466AB-001': 'dongxin-local-c3-001',
+    'DX-C3-LICHUANG-AUDIO-001': 'dongxin-local-lichuang-001',
     'DX-S3-DEVKIT-001': 'dongxin-local-s3-001',
     'DX-MQTT-SIM-001': 'dongxin-local-sim-001'
   };

@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">DX-AI-01 Rev.A low-voltage sample functional layout</title>
+  <desc id="desc">Conceptual board floorplan with RF, digital IO, audio, power, connectors and test zones.</desc>
+  <defs>
+    <style>
+      .title{font:700 28px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#17313f}.subtitle{font:400 14px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#667984}
+      .pcb{fill:#e8f2ed;stroke:#216c58;stroke-width:5}.zone{fill:#fff;stroke:#8fa39b;stroke-width:2}.rf{fill:#f2f8fc;stroke:#39729d}.audio{fill:#fff9ee;stroke:#c67a1b}.power{fill:#fff4f2;stroke:#b84b45}.io{fill:#f4faf7;stroke:#24806a}.keep{fill:#edf4f8;stroke:#6e8da0;stroke-width:2;stroke-dasharray:9 7}
+      .h{font:700 19px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#20353e}.b{font:400 13px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#536a74}.small{font:400 11px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#72848c}.ref{font:700 11px Consolas,monospace;fill:#147d64}
+      .call{fill:#fff;stroke:#91a0a7;stroke-width:1.5}.callLine{fill:none;stroke:#697c86;stroke-width:1.5}
+    </style>
+  </defs>
+  <rect width="1600" height="900" fill="#eef2f1"/>
+  <text x="58" y="56" class="title">DX-AI-01 Rev.A 样板功能分区建议</text>
+  <text x="58" y="83" class="subtitle">概念布局用于原理图/PCB评审，不规定板框尺寸、封装和最终走线</text>
+
+  <rect x="190" y="122" width="1220" height="690" rx="26" class="pcb"/>
+  <circle cx="230" cy="162" r="12" fill="#eef2f1" stroke="#5d7f71" stroke-width="3"/>
+  <circle cx="1370" cy="162" r="12" fill="#eef2f1" stroke="#5d7f71" stroke-width="3"/>
+  <circle cx="230" cy="772" r="12" fill="#eef2f1" stroke="#5d7f71" stroke-width="3"/>
+  <circle cx="1370" cy="772" r="12" fill="#eef2f1" stroke="#5d7f71" stroke-width="3"/>
+
+  <rect x="214" y="146" width="350" height="182" rx="8" class="rf"/>
+  <text x="236" y="177" class="ref">ESP32-C3 MODULE</text>
+  <text x="236" y="212" class="h">主控与无线区</text>
+  <text x="236" y="242" class="b">模块天线靠板边</text>
+  <text x="236" y="266" class="b">USB Serial/JTAG · BOOT · RESET</text>
+  <text x="236" y="290" class="small">射频区远离功放、电感、继电器接口</text>
+  <rect x="394" y="164" width="146" height="130" rx="5" class="keep"/>
+  <text x="467" y="220" text-anchor="middle" class="h">ANTENNA</text>
+  <text x="467" y="246" text-anchor="middle" class="small">KEEP-OUT</text>
+
+  <rect x="590" y="146" width="364" height="182" rx="8" class="io"/>
+  <text x="612" y="177" class="ref">U1/U2/U3 / PCF8574</text>
+  <text x="612" y="212" class="h">I2C与24路IO区</text>
+  <text x="612" y="242" class="b">0x20 · 0x21 · 0x22</text>
+  <text x="612" y="266" class="b">每颗100nF去耦 · 地址焊盘 · INT预留</text>
+  <text x="612" y="290" class="small">SDA/SCL上拉到3.3V，全部端口带测试点</text>
+
+  <rect x="980" y="146" width="406" height="182" rx="8" class="power"/>
+  <text x="1002" y="177" class="ref">POWER / USB-C 5V INPUT</text>
+  <text x="1002" y="212" class="h">低压电源区</text>
+  <text x="1002" y="242" class="b">5V输入 · 3.3V数字电源 · 音频电源</text>
+  <text x="1002" y="266" class="b">保护 · 滤波 · 电流测量跳线</text>
+  <text x="1002" y="290" class="small">首板禁止布置220V、PTC或市电继电器</text>
+
+  <rect x="214" y="354" width="444" height="244" rx="8" class="audio"/>
+  <text x="236" y="386" class="ref">CI1302 / AUDIO FRONT-END</text>
+  <text x="236" y="423" class="h">语音与模拟音频区</text>
+  <text x="236" y="455" class="b">CI1302 · 晶振/Flash · RESET/BOOT</text>
+  <text x="236" y="482" class="b">麦克风输入 · UART · I2S测试点</text>
+  <text x="236" y="509" class="b">功放MUTE/EN · 扬声器连接器</text>
+  <text x="236" y="540" class="small">麦克风与扬声器分开放置，模拟地远离开关节点</text>
+  <rect x="494" y="399" width="134" height="154" rx="5" class="keep"/>
+  <text x="561" y="457" text-anchor="middle" class="h">MIC</text>
+  <text x="561" y="482" text-anchor="middle" class="small">声学净空</text>
+  <text x="561" y="505" text-anchor="middle" class="small">禁布功率器件</text>
+
+  <rect x="684" y="354" width="702" height="244" rx="8" class="zone"/>
+  <text x="706" y="386" class="ref">LOW-VOLTAGE IO LAB</text>
+  <text x="706" y="423" class="h">驱动、状态灯与输入模拟区</text>
+  <text x="706" y="455" class="b">16路输出：缓冲/驱动后接功能LED和排针</text>
+  <text x="706" y="482" class="b">8路输入：拨码/按键、上下拉和外部接口</text>
+  <text x="706" y="509" class="b">LOAD_ENABLE：C3原生GPIO、硬件下拉、红色状态灯</text>
+  <text x="706" y="540" class="small">LED应表达“功能开启”，不能让低有效电平造成操作人员误判</text>
+  <rect x="1070" y="398" width="282" height="152" rx="5" fill="#f7f9fa" stroke="#bbc6ca"/>
+  <text x="1211" y="430" text-anchor="middle" class="ref">J-IO / ALL PORTS</text>
+  <text x="1211" y="464" text-anchor="middle" class="b">P0..P7 × 3</text>
+  <text x="1211" y="492" text-anchor="middle" class="b">3V3 / 5V / GND</text>
+  <text x="1211" y="520" text-anchor="middle" class="small">逻辑分析仪与后续功率板接口</text>
+
+  <rect x="214" y="624" width="1172" height="160" rx="8" class="zone"/>
+  <text x="236" y="656" class="ref">CONNECTORS &amp; TEST POINTS</text>
+  <text x="236" y="691" class="h">板边接口与产测区</text>
+  <text x="236" y="722" class="b">NTC/电位器 · 雷达/人感 · 显示扩展 · 摆叶接口 · C3烧录 · CI烧录 · UART/I2S/I2C探针</text>
+  <text x="236" y="751" class="small">丝印必须标注版本、方向、电压、有效电平和连接器Pin 1；所有GND测试点可直接夹取</text>
+
+  <rect x="32" y="156" width="126" height="102" rx="7" class="call"/>
+  <text x="95" y="189" text-anchor="middle" class="h">RF规则</text>
+  <text x="95" y="216" text-anchor="middle" class="small">天线下方/前方禁铜</text>
+  <text x="95" y="238" text-anchor="middle" class="small">按模块手册留净空</text>
+  <path d="M158 207 H214" class="callLine"/>
+
+  <rect x="1436" y="178" width="136" height="112" rx="7" class="call"/>
+  <text x="1504" y="211" text-anchor="middle" class="h">电源规则</text>
+  <text x="1504" y="238" text-anchor="middle" class="small">数字/音频分区滤波</text>
+  <text x="1504" y="261" text-anchor="middle" class="small">预留电流测量</text>
+  <path d="M1386 234 H1436" class="callLine"/>
+
+  <rect x="1436" y="420" width="136" height="112" rx="7" class="call"/>
+  <text x="1504" y="453" text-anchor="middle" class="h">IO规则</text>
+  <text x="1504" y="480" text-anchor="middle" class="small">PCF不得直驱负载</text>
+  <text x="1504" y="503" text-anchor="middle" class="small">全部端口可测</text>
+  <path d="M1386 476 H1436" class="callLine"/>
+
+  <text x="800" y="855" text-anchor="middle" class="subtitle">建议样板编号：DX-AI-01-REV-A-001…005 · 建议首批5块</text>
+</svg>

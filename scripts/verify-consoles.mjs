@@ -10,13 +10,17 @@ const developmentSections = [
   ["topology", "系统拓扑"],
   ["pins", "引脚与 IO"],
   ["firmware", "固件执行链"],
+  ["flashing", "固件与烧录"],
   ["testing", "实板联调"],
+  ["aiServices", "AI 服务配置"],
   ["voice", "AI 与语音"],
+  ["batchTesting", "批量测试与报告"],
   ["delivery", "版本交付"],
 ];
 const operationsSections = [
   ["overview", "运营总览"],
   ["devices", "设备中心"],
+  ["provisioning", "生产接入"],
   ["bindings", "激活与绑定"],
   ["alerts", "告警与售后"],
   ["releases", "版本发布"],
@@ -33,8 +37,8 @@ try {
     sections: developmentSections,
     navSelector: ".nav-group button",
     label: "研发中心移动端",
-    captureSection: "pins",
-    screenshot: ".artifacts/development-pins-mobile.png",
+    captureSection: "voice",
+    screenshot: ".artifacts/development-voice-mobile.png",
   });
   await verifyMobileConsole({
     baseUrl: "http://127.0.0.1:3020",
@@ -97,6 +101,15 @@ async function verifyDevelopmentDesktop() {
   await page.keyboard.press("Escape");
   await page.locator(".ant-select-dropdown").last().waitFor({ state: "hidden", timeout: 3000 });
   await page.screenshot({ path: ".artifacts/development-topology-desktop.png" });
+  await page.locator(".nav-group button", { hasText: "AI 与语音" }).click();
+  await page.getByRole("heading", { name: "实板语音测试", exact: true }).waitFor();
+  await page.screenshot({ path: ".artifacts/development-voice-desktop.png", fullPage: true });
+  await page.locator(".nav-group button", { hasText: "AI 服务配置" }).click();
+  await page.getByRole("heading", { name: "默认 AI 服务", exact: true }).waitFor();
+  await page.screenshot({ path: ".artifacts/development-ai-services-desktop.png", fullPage: true });
+  await page.locator(".nav-group button", { hasText: "批量测试与报告" }).click();
+  await page.getByRole("heading", { name: "批量任务记录", exact: true }).waitFor();
+  await page.screenshot({ path: ".artifacts/development-batch-testing-desktop.png", fullPage: true });
   await context.close();
 }
 
@@ -141,7 +154,7 @@ async function verifyMobileConsole({ baseUrl, sections, navSelector, label, capt
     await page.locator(navSelector, { hasText: captureTitle }).click();
     await page.getByRole("heading", { name: captureTitle, exact: true }).first().waitFor();
     await page.evaluate(() => window.scrollTo(0, 0));
-    await page.screenshot({ path: screenshot });
+    await page.screenshot({ path: screenshot, fullPage: true });
   }
   await context.close();
 }

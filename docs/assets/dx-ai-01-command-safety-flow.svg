@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="690" viewBox="0 0 1600 690" role="img" aria-labelledby="title desc">
+  <title id="title">DX-AI-01 command and safety execution flow</title>
+  <desc id="desc">All voice, cloud and local commands pass through the ESP32-C3 queue, safety state machine, controller and hardware abstraction layer.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#5d7480"/></marker>
+    <style>
+      .title{font:700 28px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#17313f}.subtitle{font:400 14px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#667984}
+      .input{fill:#fff;stroke:#82979f;stroke-width:2}.logic{fill:#f2faf7;stroke:#18765f;stroke-width:2.5}.safety{fill:#fff8ee;stroke:#c57819;stroke-width:3}.output{fill:#f3f8fc;stroke:#376d96;stroke-width:2}.fault{fill:#fff3f1;stroke:#b84640;stroke-width:2.5}
+      .h{font:700 17px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#213640}.b{font:400 12px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#596e77}.tiny{font:400 11px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#72838a}.line{fill:none;stroke:#5d7480;stroke-width:2.5;marker-end:url(#arrow)}.faultLine{fill:none;stroke:#b84640;stroke-width:2.5;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1600" height="690" fill="#eef3f1"/>
+  <text x="58" y="56" class="title">命令执行与硬件安全链路</text>
+  <text x="58" y="84" class="subtitle">语音、云端、遥控器都不能直接写GPIO；ESP32-C3拥有最终裁决权</text>
+
+  <rect x="54" y="128" width="210" height="88" rx="7" class="input"/><text x="159" y="164" text-anchor="middle" class="h">CI1302离线命令</text><text x="159" y="189" text-anchor="middle" class="b">语义ID / session / confidence</text>
+  <rect x="54" y="238" width="210" height="88" rx="7" class="input"/><text x="159" y="274" text-anchor="middle" class="h">平台MQTT命令</text><text x="159" y="299" text-anchor="middle" class="b">command_id / intent / expiry</text>
+  <rect x="54" y="348" width="210" height="88" rx="7" class="input"/><text x="159" y="384" text-anchor="middle" class="h">BLE本地控制</text><text x="159" y="409" text-anchor="middle" class="b">墙面板 / 手持遥控器</text>
+  <rect x="54" y="458" width="210" height="88" rx="7" class="input"/><text x="159" y="494" text-anchor="middle" class="h">定时器与安全事件</text><text x="159" y="519" text-anchor="middle" class="b">过温 / 温断 / IO失联</text>
+
+  <rect x="334" y="242" width="196" height="118" rx="7" class="logic"/><text x="432" y="280" text-anchor="middle" class="h">统一命令解析</text><text x="432" y="307" text-anchor="middle" class="b">格式 · 能力 · 幂等 · 过期</text><text x="432" y="333" text-anchor="middle" class="tiny">command_queue.c</text>
+  <rect x="588" y="226" width="236" height="150" rx="7" class="safety"/><text x="706" y="266" text-anchor="middle" class="h">C3安全状态机</text><text x="706" y="296" text-anchor="middle" class="b">风机/取暖互锁</text><text x="706" y="320" text-anchor="middle" class="b">温度/时间/故障裁决</text><text x="706" y="344" text-anchor="middle" class="tiny">device_controller.c</text>
+  <rect x="882" y="242" width="196" height="118" rx="7" class="logic"/><text x="980" y="280" text-anchor="middle" class="h">期望状态计算</text><text x="980" y="307" text-anchor="middle" class="b">原子状态迁移</text><text x="980" y="333" text-anchor="middle" class="tiny">controller → HAL</text>
+  <rect x="1136" y="213" width="210" height="176" rx="7" class="output"/><text x="1241" y="251" text-anchor="middle" class="h">硬件抽象层</text><text x="1241" y="281" text-anchor="middle" class="b">PCF8574 / GPIO / ADC</text><text x="1241" y="308" text-anchor="middle" class="b">输出写入与输入读取</text><text x="1241" y="335" text-anchor="middle" class="b">LOCAL_VIRTUAL / PHYSICAL</text><text x="1241" y="365" text-anchor="middle" class="tiny">direct_control_hal.c</text>
+  <rect x="1404" y="242" width="150" height="118" rx="7" class="output"/><text x="1479" y="278" text-anchor="middle" class="h">低压输出</text><text x="1479" y="306" text-anchor="middle" class="b">LED / 接口</text><text x="1479" y="331" text-anchor="middle" class="tiny">状态读回</text>
+
+  <path d="M264 172 C300 172 298 264 334 264" class="line"/><path d="M264 282 H334" class="line"/><path d="M264 392 C300 392 298 338 334 338" class="line"/><path d="M264 502 C292 502 294 351 334 351" class="line"/>
+  <path d="M530 301 H588" class="line"/><path d="M824 301 H882" class="line"/><path d="M1078 301 H1136" class="line"/><path d="M1346 301 H1404" class="line"/>
+
+  <rect x="588" y="476" width="236" height="104" rx="7" class="fault"/><text x="706" y="513" text-anchor="middle" class="h">FAULT_LOCKED</text><text x="706" y="540" text-anchor="middle" class="b">关闭取暖 · LOAD_ENABLE禁用</text><text x="706" y="562" text-anchor="middle" class="tiny">保留故障码与诊断证据</text>
+  <path d="M706 376 V476" class="faultLine"/>
+  <path d="M1241 389 C1241 532 905 528 824 528" class="faultLine"/>
+  <text x="1050" y="512" text-anchor="middle" class="tiny">写入失败 / I2C失联 / 读回异常</text>
+
+  <rect x="334" y="614" width="1020" height="40" rx="5" fill="#233e49"/>
+  <text x="844" y="639" text-anchor="middle" style="font:700 13px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#fff">上电顺序：硬件下拉关闭LOAD_ENABLE → 初始化I2C → 3颗PCF写0xFF → 自检通过 → 允许普通控制</text>
+</svg>

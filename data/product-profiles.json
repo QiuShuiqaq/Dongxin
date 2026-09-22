@@ -4,7 +4,8 @@
     "name": "东信 AI 浴霸 C3 + CI1302",
     "model": "DX-AI-01",
     "deviceModelAliases": [
-      "DX-AI-BATH-C3-SUPERMINI"
+      "DX-AI-BATH-C3-SUPERMINI",
+      "DX-AI-BATH-C3-LICHUANG-AUDIO"
     ],
     "status": "ACTIVE",
     "controller": "ESP32_C3",

@@ -9,9 +9,9 @@
 
 [CmdletBinding()]
 param(
-    [ValidateSet("menu", "c3-target", "build", "flash-monitor", "flash", "monitor", "fullclean", "s3-target", "s3-build")]
+    [ValidateSet("menu", "c3-target", "build", "build-flash", "flash-monitor", "flash", "monitor", "fullclean", "s3-target", "s3-build", "lichuang-build", "lichuang-build-flash", "lichuang-flash-monitor", "lichuang-flash", "lichuang-monitor")]
     [string]$Action = "menu",
-    [string]$Port = "COM3"
+    [string]$Port = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,7 +22,12 @@ $IdfPath      = "$IdfToolsPath\frameworks\esp-idf-v5.3.2"
 $IdfPythonEnv = "$IdfToolsPath\python_env\idf5.3_py3.11_env"
 $IdfPython    = "$IdfPythonEnv\Scripts\python.exe"
 $IdfScript    = "$IdfPath\tools\idf.py"
-$ComPort      = $Port
+$ComPort      = if ([string]::IsNullOrWhiteSpace($Port)) {
+    if ($Action -like "lichuang-*") { "COM5" } else { "COM3" }
+}
+else {
+    $Port
+}
 
 Write-Host ""
 Write-Host "===============================================" -ForegroundColor Cyan
@@ -64,6 +69,7 @@ $env:IDF_PYTHON_ENV_PATH = $IdfPythonEnv
 $env:IDF_CCACHE_ENABLE = "1"
 $env:CCACHE_DIR = "D:\workspace\.ccache"
 $env:CCACHE_TEMPDIR = "D:\workspace\.ccache-tmp"
+$env:IDF_COMPONENT_CACHE_PATH = "D:\workspace\.espressif-component-cache"
 $env:IDF_SKIP_CHECK_SUBMODULES = "1"
 $env:ESP_IDF_VERSION = "5.3"
 $env:OPENOCD_SCRIPTS = "$IdfToolsPath\tools\openocd-esp32\v0.12.0-esp32-20241016\openocd-esp32\share\openocd\scripts"
@@ -98,20 +104,30 @@ if ($Action -eq "menu") {
     Write-Host "  6 = fullclean"
     Write-Host "  7 = set-target esp32s3   (switch the default build directory)"
     Write-Host "  8 = build esp32s3 in isolated build-s3-verify2 directory"
+    Write-Host "  9 = build Lichuang C3 audio board (silent ASR image)"
+    Write-Host " 10 = build + flash + monitor Lichuang board on COM5"
+    Write-Host " 11 = flash Lichuang board on COM5"
+    Write-Host " 12 = monitor Lichuang board on COM5"
     Write-Host ""
-    $choice = Read-Host "Enter 1-8"
+    $choice = Read-Host "Enter 1-12"
     Write-Host ""
 }
 else {
     $actionChoices = @{
         "c3-target" = "1"
         "build" = "2"
+        "build-flash" = "13"
         "flash-monitor" = "3"
         "flash" = "4"
         "monitor" = "5"
         "fullclean" = "6"
         "s3-target" = "7"
         "s3-build" = "8"
+        "lichuang-build" = "9"
+        "lichuang-build-flash" = "14"
+        "lichuang-flash-monitor" = "10"
+        "lichuang-flash" = "11"
+        "lichuang-monitor" = "12"
     }
     $choice = $actionChoices[$Action]
 }
@@ -127,7 +143,7 @@ function Invoke-Idf {
     }
 }
 
-if ($choice -in @("3", "4", "5")) {
+if ($choice -in @("3", "4", "5", "10", "11", "12", "13", "14")) {
     $availablePorts = @([System.IO.Ports.SerialPort]::GetPortNames())
     if ($availablePorts -notcontains $ComPort) {
         Write-Host "[X] serial port $ComPort is not available" -ForegroundColor Red
@@ -153,6 +169,10 @@ elseif ($choice -eq "3") {
     Write-Host "Monitoring serial output, press Ctrl+] to exit" -ForegroundColor Yellow
     Invoke-Idf @("-p", $ComPort, "monitor")
 }
+elseif ($choice -eq "13") {
+    Invoke-Idf @("build")
+    Invoke-Idf @("-p", $ComPort, "flash")
+}
 elseif ($choice -eq "4") {
     Invoke-Idf @("-p", $ComPort, "flash")
 }
@@ -168,6 +188,26 @@ elseif ($choice -eq "7") {
 }
 elseif ($choice -eq "8") {
     Invoke-Idf @("-B", "build-s3-verify2", "-D", "SDKCONFIG=sdkconfig.s3", "build")
+}
+elseif ($choice -eq "9") {
+    Invoke-Idf @("-B", "build-lichuang", "-D", "SDKCONFIG=sdkconfig.lichuang", "build")
+}
+elseif ($choice -eq "10") {
+    Invoke-Idf @("-B", "build-lichuang", "-D", "SDKCONFIG=sdkconfig.lichuang", "build")
+    Invoke-Idf @("-B", "build-lichuang", "-p", $ComPort, "flash")
+    Write-Host "Monitoring silent ASR firmware, press Ctrl+] to exit" -ForegroundColor Yellow
+    Invoke-Idf @("-B", "build-lichuang", "-p", $ComPort, "monitor")
+}
+elseif ($choice -eq "14") {
+    Invoke-Idf @("-B", "build-lichuang", "-D", "SDKCONFIG=sdkconfig.lichuang", "build")
+    Invoke-Idf @("-B", "build-lichuang", "-p", $ComPort, "flash")
+}
+elseif ($choice -eq "11") {
+    Invoke-Idf @("-B", "build-lichuang", "-p", $ComPort, "flash")
+}
+elseif ($choice -eq "12") {
+    Write-Host "Monitoring silent ASR firmware, press Ctrl+] to exit" -ForegroundColor Yellow
+    Invoke-Idf @("-B", "build-lichuang", "-p", $ComPort, "monitor")
 }
 else {
     Write-Host "[X] invalid choice: $choice" -ForegroundColor Red

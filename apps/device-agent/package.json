@@ -1,0 +1,20 @@
+{
+  "name": "@dongxin/device-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-only bridge between the Dongxin engineering console and ESP32 serial ports.",
+  "scripts": {
+    "start": "node --no-warnings --experimental-strip-types src/index.ts",
+    "dev": "node --no-warnings --experimental-strip-types --watch src/index.ts",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "serialport": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
+  }
+}

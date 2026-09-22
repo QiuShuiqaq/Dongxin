@@ -17,6 +17,7 @@
  */
 #define DX_BOARD_C3 0
 #define DX_BOARD_S3 1
+#define DX_BOARD_C3_LICHUANG_AUDIO 2
 
 /*
  * When no board is specified explicitly, follow the ESP-IDF target selected
@@ -26,6 +27,8 @@
 #ifndef DX_TARGET_BOARD
 #if defined(CONFIG_IDF_TARGET_ESP32S3) && CONFIG_IDF_TARGET_ESP32S3
 #define DX_TARGET_BOARD DX_BOARD_S3
+#elif defined(CONFIG_DX_BOARD_C3_LICHUANG_AUDIO) && CONFIG_DX_BOARD_C3_LICHUANG_AUDIO
+#define DX_TARGET_BOARD DX_BOARD_C3_LICHUANG_AUDIO
 #elif defined(CONFIG_IDF_TARGET_ESP32C3) && CONFIG_IDF_TARGET_ESP32C3
 #define DX_TARGET_BOARD DX_BOARD_C3
 #else
@@ -36,6 +39,9 @@
 #if DX_TARGET_BOARD == DX_BOARD_S3
 #define DX_DEVICE_ID "DX-S3-DEVKIT-001"
 #define DX_DEVICE_MODEL "DX-AI-BATH-S3-DEV"
+#elif DX_TARGET_BOARD == DX_BOARD_C3_LICHUANG_AUDIO
+#define DX_DEVICE_ID "DX-C3-LICHUANG-AUDIO-001"
+#define DX_DEVICE_MODEL "DX-AI-BATH-C3-LICHUANG-AUDIO"
 #else
 #define DX_DEVICE_ID "DX-C3-SUPERMINI-HW466AB-001"
 #define DX_DEVICE_MODEL "DX-AI-BATH-C3-SUPERMINI"
@@ -49,7 +55,11 @@
 #define DX_ENABLE_CLOUD 0
 #define DX_ENABLE_MQTT 1
 #define DX_ENABLE_UART_BRIDGE 0
+#if DX_TARGET_BOARD == DX_BOARD_C3_LICHUANG_AUDIO
+#define DX_ENABLE_AUDIO 1
+#else
 #define DX_ENABLE_AUDIO 0
+#endif
 #define DX_ENABLE_TEXT_SIMULATION 1
 #define DX_ENABLE_NTC_CONTROL 0
 
@@ -93,6 +103,8 @@
 /* Development credential only. Production credentials are provisioned per device. */
 #if DX_TARGET_BOARD == DX_BOARD_S3
 #define DX_MQTT_DEVICE_SECRET "dongxin-local-s3-001"
+#elif DX_TARGET_BOARD == DX_BOARD_C3_LICHUANG_AUDIO
+#define DX_MQTT_DEVICE_SECRET "dongxin-local-lichuang-001"
 #else
 #define DX_MQTT_DEVICE_SECRET "dongxin-local-c3-001"
 #endif
@@ -103,6 +115,32 @@
 #define DX_COMMAND_POLL_INTERVAL_SECONDS 3
 #define DX_HTTP_TIMEOUT_MS 5000
 #define DX_WIFI_CONNECT_TIMEOUT_SECONDS 30
+
+/* Lichuang ESP32-C3 audio validation board. The PA stays disabled in the
+ * first-stage ASR build; no code path is allowed to play audio at boot. */
+#define DX_LICHUANG_I2C_PORT 0
+#define DX_LICHUANG_I2C_SDA_GPIO 0
+#define DX_LICHUANG_I2C_SCL_GPIO 1
+#define DX_LICHUANG_I2S_PORT 0
+#define DX_LICHUANG_I2S_MCLK_GPIO 10
+#define DX_LICHUANG_I2S_BCLK_GPIO 8
+#define DX_LICHUANG_I2S_WS_GPIO 12
+#define DX_LICHUANG_I2S_DOUT_GPIO 11
+#define DX_LICHUANG_I2S_DIN_GPIO 7
+#define DX_LICHUANG_RECORD_BUTTON_GPIO 9
+#define DX_LICHUANG_PA_ENABLE_GPIO 13
+#define DX_LICHUANG_WAKE_ACK_VOLUME 8
+#define DX_VOICE_SAMPLE_RATE 16000
+#define DX_VOICE_BITS_PER_SAMPLE 16
+#define DX_VOICE_CHANNELS 1
+#define DX_VOICE_RECORD_SECONDS 6
+#define DX_VOICE_HTTP_TIMEOUT_MS 45000
+#define DX_VOICE_PCM_URL \
+    DX_GATEWAY_BASE_URL "/api/device/v1/voice-pcm?deviceId=" DX_DEVICE_ID \
+    "&sampleRate=16000&bitsPerSample=16&channels=1&requireWakeWord=1&synthesizeSpeech=0&testMode=FULL_PIPELINE"
+#define DX_VOICE_PCM_ASR_ONLY_URL \
+    DX_GATEWAY_BASE_URL "/api/device/v1/voice-pcm?deviceId=" DX_DEVICE_ID \
+    "&sampleRate=16000&bitsPerSample=16&channels=1&requireWakeWord=0&synthesizeSpeech=0&testMode=ASR_ONLY"
 
 /* Legacy MCU UART test asset. The new C3 board does not use this path for load
  * control; CI1302 has a separate UART0 control link in its board profile. */

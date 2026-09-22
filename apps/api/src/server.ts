@@ -14,8 +14,14 @@ export async function createServer() {
   await server.register(cors, {
     origin: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-Device-Id', 'X-Request-Id', 'X-Timestamp', 'X-Signature']
+    allowedHeaders: ['Content-Type', 'X-Device-Id', 'X-Request-Id', 'X-Timestamp', 'X-Signature', 'X-Voice-Test-Session-Id']
   });
+
+  server.addContentTypeParser(
+    ['application/octet-stream', 'audio/pcm', 'audio/l16'],
+    { parseAs: 'buffer' },
+    (_request, body, done) => done(null, body)
+  );
 
   await registerRoutes(server);
 

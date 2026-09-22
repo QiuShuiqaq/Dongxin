@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="850" viewBox="0 0 1600 850" role="img" aria-labelledby="title desc">
+  <title id="title">DX-AI-01 Rev.A system architecture</title>
+  <desc id="desc">Low-voltage sample architecture showing ESP32-C3, CI1302, audio, PCF8574 IO, sensors, BLE controls and cloud services.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#55717f"/>
+    </marker>
+    <style>
+      .title{font:700 28px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#17313f}.subtitle{font:400 14px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#667984}
+      .zone{fill:#f7faf9;stroke:#d5dfdb;stroke-width:2}.node{fill:#fff;stroke:#879ba4;stroke-width:2}.primary{fill:#f3fbf8;stroke:#147d64;stroke-width:3}.voice{fill:#fff9ef;stroke:#c77716;stroke-width:2}.danger{fill:#fff6f4;stroke:#b84b45;stroke-width:2}.cloud{fill:#f4f8fc;stroke:#376f9f;stroke-width:2}
+      .h{font:700 20px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#1c303a}.b{font:400 14px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#536872}.small{font:400 12px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#70828a}.tag{font:700 12px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#147d64}
+      .line{fill:none;stroke:#55717f;stroke-width:2.5;marker-end:url(#arrow)}.dash{fill:none;stroke:#8ca0aa;stroke-width:2;stroke-dasharray:8 7;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1600" height="850" fill="#eef3f1"/>
+  <text x="64" y="58" class="title">DX-AI-01 Rev.A 低压研发样板系统架构</text>
+  <text x="64" y="84" class="subtitle">ESP32-C3 单主控 · CI1302 语音前端 · 3 × PCF8574 · 首板不接 220V</text>
+
+  <rect x="54" y="116" width="1050" height="678" rx="10" class="zone"/>
+  <text x="78" y="150" class="tag">样板主板 / LOW VOLTAGE ONLY</text>
+
+  <rect x="456" y="276" width="265" height="210" rx="8" class="primary"/>
+  <text x="588" y="324" text-anchor="middle" class="h">ESP32-C3</text>
+  <text x="588" y="352" text-anchor="middle" class="b">唯一业务主控</text>
+  <text x="588" y="391" text-anchor="middle" class="small">命令队列 · 安全状态机</text>
+  <text x="588" y="414" text-anchor="middle" class="small">WiFi / BLE / MQTT</text>
+  <text x="588" y="437" text-anchor="middle" class="small">设备状态 · 故障与回执</text>
+  <rect x="515" y="453" width="146" height="23" rx="4" fill="#dcefe8"/>
+  <text x="588" y="469" text-anchor="middle" class="tag">8MB Flash 建议</text>
+
+  <rect x="90" y="206" width="244" height="176" rx="8" class="voice"/>
+  <text x="212" y="249" text-anchor="middle" class="h">CI1302</text>
+  <text x="212" y="278" text-anchor="middle" class="b">唤醒 / 离线识别 / VAD</text>
+  <text x="212" y="315" text-anchor="middle" class="small">UART：事件与控制</text>
+  <text x="212" y="338" text-anchor="middle" class="small">I2S：在线 PCM（待SDK验证）</text>
+  <rect x="130" y="349" width="164" height="22" rx="4" fill="#fff0d6"/>
+  <text x="212" y="365" text-anchor="middle" class="small">独立烧录 / 复位接口</text>
+
+  <rect x="90" y="440" width="244" height="244" rx="8" class="node"/>
+  <text x="212" y="481" text-anchor="middle" class="h">音频前端</text>
+  <text x="212" y="519" text-anchor="middle" class="b">麦克风</text>
+  <path d="M142 545 H282" class="line"/>
+  <text x="212" y="573" text-anchor="middle" class="b">CI DAC / 备用数字音频</text>
+  <path d="M142 598 H282" class="line"/>
+  <text x="212" y="626" text-anchor="middle" class="b">功放 → 扬声器</text>
+  <text x="212" y="657" text-anchor="middle" class="small">4Ω / 3W 仅为首板建议值</text>
+
+  <rect x="799" y="190" width="260" height="218" rx="8" class="node"/>
+  <text x="929" y="234" text-anchor="middle" class="h">3 × PCF8574</text>
+  <text x="929" y="264" text-anchor="middle" class="b">I2C 100kHz · 3.3V</text>
+  <text x="929" y="300" text-anchor="middle" class="small">U1 0x20 · 负载逻辑</text>
+  <text x="929" y="324" text-anchor="middle" class="small">U2 0x21 · 摆叶/辅助</text>
+  <text x="929" y="348" text-anchor="middle" class="small">U3 0x22 · 输入/预留</text>
+  <rect x="842" y="366" width="174" height="24" rx="4" fill="#eef2f4"/>
+  <text x="929" y="383" text-anchor="middle" class="small">24路全部引出测试点</text>
+
+  <rect x="799" y="464" width="260" height="220" rx="8" class="danger"/>
+  <text x="929" y="507" text-anchor="middle" class="h">低压驱动与模拟负载</text>
+  <text x="929" y="544" text-anchor="middle" class="b">缓冲/驱动 → 功能LED</text>
+  <text x="929" y="571" text-anchor="middle" class="b">拨码/按键 → 输入模拟</text>
+  <text x="929" y="598" text-anchor="middle" class="b">连接器 → 后续功率板</text>
+  <text x="929" y="630" text-anchor="middle" class="small">PCF8574不得直接驱动负载</text>
+  <text x="929" y="653" text-anchor="middle" class="small">LOAD_ENABLE硬件下拉</text>
+
+  <rect x="456" y="570" width="265" height="114" rx="8" class="node"/>
+  <text x="588" y="610" text-anchor="middle" class="h">传感器 / 扩展</text>
+  <text x="588" y="639" text-anchor="middle" class="b">NTC ADC · 雷达 · 显示接口</text>
+  <text x="588" y="663" text-anchor="middle" class="small">电位器/按键可模拟真实传感器</text>
+
+  <rect x="1172" y="158" width="360" height="194" rx="8" class="cloud"/>
+  <text x="1352" y="202" text-anchor="middle" class="h">研发平台 / AI Gateway</text>
+  <text x="1352" y="238" text-anchor="middle" class="b">MQTT · 设备状态 · 命令回执</text>
+  <text x="1352" y="266" text-anchor="middle" class="b">ASR · 规则 · 知识库 · LLM · TTS</text>
+  <text x="1352" y="302" text-anchor="middle" class="small">当前本地研发，生产迁移阿里云</text>
+  <rect x="1267" y="317" width="170" height="23" rx="4" fill="#e4eef7"/>
+  <text x="1352" y="333" text-anchor="middle" class="small">WiFi / MQTT</text>
+
+  <rect x="1172" y="432" width="360" height="160" rx="8" class="node"/>
+  <text x="1352" y="475" text-anchor="middle" class="h">本地控制终端</text>
+  <text x="1352" y="510" text-anchor="middle" class="b">墙面触控板 · 手持遥控器</text>
+  <text x="1352" y="539" text-anchor="middle" class="b">微信小程序配网</text>
+  <text x="1352" y="568" text-anchor="middle" class="small">使用C3内置BLE，主板不增加BLE模块</text>
+
+  <rect x="1172" y="651" width="360" height="112" rx="8" class="node"/>
+  <text x="1352" y="692" text-anchor="middle" class="h">工厂 / 研发工具</text>
+  <text x="1352" y="724" text-anchor="middle" class="b">C3 USB Serial/JTAG · CI烧录口 · 测试治具</text>
+
+  <path d="M334 285 H456" class="line"/>
+  <text x="395" y="271" text-anchor="middle" class="small">UART</text>
+  <path d="M334 340 C385 340 390 413 456 413" class="dash"/>
+  <text x="394" y="383" text-anchor="middle" class="small">I2S</text>
+  <path d="M212 382 V440" class="line"/>
+  <path d="M721 318 H799" class="line"/>
+  <text x="760" y="303" text-anchor="middle" class="small">I2C</text>
+  <path d="M929 408 V464" class="line"/>
+  <path d="M721 628 H799" class="line"/>
+  <text x="760" y="613" text-anchor="middle" class="small">ADC/GPIO</text>
+  <path d="M1104 259 H1172" class="line"/>
+  <path d="M1172 512 H1104" class="line"/>
+  <text x="1138" y="497" text-anchor="middle" class="small">BLE</text>
+  <path d="M1172 707 H1104" class="line"/>
+  <text x="1138" y="692" text-anchor="middle" class="small">USB/UART</text>
+
+  <rect x="54" y="808" width="1478" height="28" rx="4" fill="#243d49"/>
+  <text x="793" y="827" text-anchor="middle" style="font:700 13px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#fff">本图是硬件设计输入与职责边界，不是可直接生产的电气原理图</text>
+</svg>

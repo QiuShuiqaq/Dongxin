@@ -196,6 +196,28 @@ export const ProviderSecretStatusSchema = z.object({
 });
 export type ProviderSecretStatus = z.infer<typeof ProviderSecretStatusSchema>;
 
+export const AiServiceDefaultsSchema = z.object({
+  LLM: z.string().nullable(),
+  ASR: z.string().nullable(),
+  TTS: z.string().nullable(),
+  updatedAt: z.string(),
+});
+export type AiServiceDefaults = z.infer<typeof AiServiceDefaultsSchema>;
+
+export const ProviderDiagnosticResultSchema = z.object({
+  providerId: z.string().min(1),
+  serviceType: ProviderServiceTypeSchema,
+  status: z.enum(["PASSED", "FAILED"]),
+  latencyMs: z.number().int().nonnegative(),
+  result: z.string(),
+  costCny: z.number().nonnegative(),
+  testedAt: z.string(),
+  error: z.string().nullable(),
+});
+export type ProviderDiagnosticResult = z.infer<
+  typeof ProviderDiagnosticResultSchema
+>;
+
 export const SaveProviderApiKeyRequestSchema = z.object({
   apiKey: z.string().trim().min(1, "API Key 不能为空"),
 });
@@ -400,6 +422,100 @@ export const EvaluationRunSchema = z.object({
   items: z.array(EvaluationItemSchema),
 });
 export type EvaluationRun = z.infer<typeof EvaluationRunSchema>;
+
+export const AsrDatasetItemSchema = z.object({
+  id: z.string().uuid(),
+  fileName: z.string().min(1),
+  expectedText: z.string().min(1),
+  mimeType: z.string().min(1),
+  byteLength: z.number().int().positive(),
+  audioUrl: z.string().min(1),
+  createdAt: z.string(),
+});
+export type AsrDatasetItem = z.infer<typeof AsrDatasetItemSchema>;
+
+export const AsrDatasetSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1),
+  description: z.string().default(""),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  items: z.array(AsrDatasetItemSchema),
+});
+export type AsrDataset = z.infer<typeof AsrDatasetSchema>;
+
+export const BatchTestKindSchema = z.enum(["ASR", "LLM", "TTS"]);
+export type BatchTestKind = z.infer<typeof BatchTestKindSchema>;
+
+export const BatchTestStatusSchema = z.enum([
+  "QUEUED",
+  "RUNNING",
+  "COMPLETED",
+  "CANCELLED",
+  "FAILED",
+]);
+export type BatchTestStatus = z.infer<typeof BatchTestStatusSchema>;
+
+export const BatchTestItemSchema = z.object({
+  id: z.string().uuid(),
+  sequence: z.number().int().positive(),
+  testCaseId: z.string().nullable(),
+  datasetItemId: z.string().uuid().nullable(),
+  inputText: z.string(),
+  expectedText: z.string().nullable(),
+  actualText: z.string().nullable(),
+  expectedIntent: DeviceIntentSchema.nullable(),
+  actualIntent: DeviceIntentSchema.nullable(),
+  passed: z.boolean(),
+  latencyMs: z.number().int().nonnegative(),
+  costCny: z.number().nonnegative(),
+  characterErrorRate: z.number().min(0).nullable(),
+  wakeWordExpected: z.boolean(),
+  wakeWordDetected: z.boolean(),
+  audioUrl: z.string().nullable(),
+  error: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type BatchTestItem = z.infer<typeof BatchTestItemSchema>;
+
+export const BatchTestSummarySchema = z.object({
+  total: z.number().int().nonnegative(),
+  completed: z.number().int().nonnegative(),
+  passed: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  passRate: z.number().min(0).max(1),
+  averageLatencyMs: z.number().nonnegative(),
+  p95LatencyMs: z.number().nonnegative(),
+  totalCostCny: z.number().nonnegative(),
+  averageCharacterErrorRate: z.number().min(0).nullable(),
+  wakeWordAccuracy: z.number().min(0).max(1).nullable(),
+});
+export type BatchTestSummary = z.infer<typeof BatchTestSummarySchema>;
+
+export const BatchTestRunSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1),
+  kind: BatchTestKindSchema,
+  status: BatchTestStatusSchema,
+  providerId: z.string().min(1),
+  providerName: z.string().min(1),
+  deviceId: z.string().nullable(),
+  testSetId: z.string().nullable(),
+  testSetName: z.string().nullable(),
+  asrDatasetId: z.string().uuid().nullable(),
+  asrDatasetName: z.string().nullable(),
+  repeatCount: z.number().int().min(1).max(3),
+  maxCases: z.number().int().min(1).max(200),
+  caseIds: z.array(z.string()),
+  summary: BatchTestSummarySchema,
+  items: z.array(BatchTestItemSchema),
+  createdAt: z.string(),
+  startedAt: z.string().nullable(),
+  completedAt: z.string().nullable(),
+  updatedAt: z.string(),
+  error: z.string().nullable(),
+});
+export type BatchTestRun = z.infer<typeof BatchTestRunSchema>;
 
 export const DeviceProtocolSchema = z.enum(["SIMULATOR", "HTTP", "MQTT"]);
 export type DeviceProtocol = z.infer<typeof DeviceProtocolSchema>;
@@ -696,6 +812,9 @@ export const VoicePipelineRequestSchema = z
     promptId: z.string().min(1).optional(),
     applyToDevice: z.boolean().default(false),
     simulateOffline: z.enum(["AUTO", "HIT", "MISS"]).default("AUTO"),
+    requireWakeWord: z.boolean().default(false),
+    synthesizeSpeech: z.boolean().default(true),
+    testMode: z.enum(["FULL_PIPELINE", "ASR_ONLY"]).default("FULL_PIPELINE"),
   })
   .superRefine((value, context) => {
     const hasText = Boolean(value.text?.trim());
@@ -709,6 +828,9 @@ export const VoicePipelineRequestSchema = z
     }
   });
 export type VoicePipelineRequest = z.infer<typeof VoicePipelineRequestSchema>;
+
+export const VoiceModuleTestModeSchema = z.enum(["FULL_PIPELINE", "ASR_ONLY"]);
+export type VoiceModuleTestMode = z.infer<typeof VoiceModuleTestModeSchema>;
 
 export const VoicePipelineResponseSchema = z.object({
   sessionId: z.string(),
@@ -727,6 +849,37 @@ export const VoicePipelineResponseSchema = z.object({
   ttsAudioMimeType: z.string().nullable(),
 });
 export type VoicePipelineResponse = z.infer<typeof VoicePipelineResponseSchema>;
+
+export const VoiceTestSessionStatusSchema = z.enum([
+  "CREATED",
+  "COMMAND_SENT",
+  "RECORDING",
+  "UPLOADING",
+  "PROCESSING",
+  "STOPPING",
+  "COMPLETED",
+  "CANCELLED",
+  "FAILED",
+]);
+export type VoiceTestSessionStatus = z.infer<
+  typeof VoiceTestSessionStatusSchema
+>;
+
+export const VoiceTestSessionSchema = z.object({
+  id: z.string().uuid(),
+  deviceId: z.string().min(1),
+  mode: VoiceModuleTestModeSchema.default("FULL_PIPELINE"),
+  status: VoiceTestSessionStatusSchema,
+  recordSeconds: z.number().int().min(1).max(30),
+  muted: z.literal(true),
+  message: z.string(),
+  requestedAt: z.string(),
+  startedAt: z.string().nullable(),
+  completedAt: z.string().nullable(),
+  updatedAt: z.string(),
+  result: VoicePipelineResponseSchema.nullable(),
+});
+export type VoiceTestSession = z.infer<typeof VoiceTestSessionSchema>;
 
 export const VoicePipelineBatchRequestSchema = z.object({
   testSetId: z.string().min(1),

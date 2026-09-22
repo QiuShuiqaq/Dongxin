@@ -16,6 +16,7 @@
 #include "device_state.h"
 #include "direct_control_hal.h"
 #include "mqtt_agent.h"
+#include "voice_engine.h"
 #include "wifi_manager.h"
 
 static const char *TAG = "MQTT_AGENT";
@@ -25,6 +26,8 @@ static esp_mqtt_client_handle_t s_client;
 static bool s_connected;
 static unsigned long s_message_sequence;
 static char s_command_topic[160];
+static char s_voice_test_topic[160];
+static char s_audio_test_topic[160];
 static char s_rx_buffer[2048];
 static QueueHandle_t s_command_queue;
 
@@ -44,6 +47,8 @@ static void publish_registration(void);
 static void publish_heartbeat(void);
 static void publish_online_status(void);
 static void handle_command_payload(const char *payload, size_t payload_length);
+static bool handle_voice_test_control(const cJSON *data);
+static bool handle_audio_test_control(const cJSON *data);
 static void command_dispatch_task(void *arg);
 
 bool mqtt_agent_is_connected(void)
@@ -65,6 +70,45 @@ esp_err_t mqtt_agent_report_state(void)
     return publish_envelope("state", data, 1, true);
 }
 
+esp_err_t mqtt_agent_report_voice_test(
+    const char *test_session_id,
+    const char *status,
+    const char *message
+)
+{
+    if (test_session_id == NULL || test_session_id[0] == '\0' ||
+        status == NULL || status[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    cJSON *data = cJSON_CreateObject();
+    if (data == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    cJSON_AddStringToObject(data, "testSessionId", test_session_id);
+    cJSON_AddStringToObject(data, "status", status);
+    cJSON_AddStringToObject(data, "message", message == NULL ? "" : message);
+    return publish_envelope("voice-test", data, 1, false);
+}
+
+esp_err_t mqtt_agent_report_audio_test(
+    const char *test_id,
+    const char *status,
+    const char *message
+)
+{
+    if (test_id == NULL || test_id[0] == '\0' || status == NULL || status[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    cJSON *data = cJSON_CreateObject();
+    if (data == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    cJSON_AddStringToObject(data, "testId", test_id);
+    cJSON_AddStringToObject(data, "status", status);
+    cJSON_AddStringToObject(data, "message", message == NULL ? "" : message);
+    return publish_envelope("audio-test", data, 1, false);
+}
+
 static void mqtt_event_handler(
     void *handler_args,
     esp_event_base_t base,
@@ -81,7 +125,9 @@ static void mqtt_event_handler(
             s_connected = true;
             device_state_set_online(true);
             esp_mqtt_client_subscribe(s_client, s_command_topic, 1);
-            ESP_LOGI(TAG, "Connected, subscribed to %s", s_command_topic);
+            esp_mqtt_client_subscribe(s_client, s_voice_test_topic, 1);
+            esp_mqtt_client_subscribe(s_client, s_audio_test_topic, 1);
+            ESP_LOGI(TAG, "Connected, subscribed to command, voice test and audio test topics");
             publish_registration();
             publish_online_status();
             mqtt_agent_report_state();
@@ -151,6 +197,10 @@ static void handle_command_payload(const char *payload, size_t payload_length)
     const cJSON *actions = data == NULL
         ? NULL
         : cJSON_GetObjectItemCaseSensitive(data, "actions");
+    if (handle_voice_test_control(data) || handle_audio_test_control(data)) {
+        cJSON_Delete(root);
+        return;
+    }
     if (!cJSON_IsString(command_id) || command_id->valuestring == NULL ||
         !cJSON_IsArray(actions)) {
         ESP_LOGE(TAG, "MQTT command envelope is invalid");
@@ -201,6 +251,81 @@ static void handle_command_payload(const char *payload, size_t payload_length)
     cJSON_Delete(root);
 }
 
+static bool handle_voice_test_control(const cJSON *data)
+{
+    const cJSON *type = data == NULL
+        ? NULL
+        : cJSON_GetObjectItemCaseSensitive(data, "type");
+    if (!cJSON_IsString(type) || type->valuestring == NULL ||
+        strcmp(type->valuestring, "voice_test") != 0) {
+        return false;
+    }
+
+    const cJSON *action = cJSON_GetObjectItemCaseSensitive(data, "action");
+    const cJSON *session_id = cJSON_GetObjectItemCaseSensitive(data, "testSessionId");
+    const cJSON *mode = cJSON_GetObjectItemCaseSensitive(data, "mode");
+    if (!cJSON_IsString(action) || action->valuestring == NULL ||
+        !cJSON_IsString(session_id) || session_id->valuestring == NULL) {
+        ESP_LOGE(TAG, "Voice test control payload is invalid");
+        return true;
+    }
+
+    esp_err_t err;
+    if (strcmp(action->valuestring, "start") == 0) {
+        const bool asr_only = cJSON_IsString(mode) && mode->valuestring != NULL &&
+            strcmp(mode->valuestring, "ASR_ONLY") == 0;
+        err = voice_engine_start_test(session_id->valuestring, asr_only);
+    } else if (strcmp(action->valuestring, "stop") == 0) {
+        err = voice_engine_stop_test(session_id->valuestring);
+    } else {
+        err = ESP_ERR_INVALID_ARG;
+    }
+    if (err != ESP_OK) {
+        char message[96];
+        snprintf(message, sizeof(message), "Voice test control rejected: %s", esp_err_to_name(err));
+        mqtt_agent_report_voice_test(session_id->valuestring, "FAILED", message);
+        ESP_LOGE(TAG, "%s", message);
+    }
+    return true;
+}
+
+static bool handle_audio_test_control(const cJSON *data)
+{
+    const cJSON *type = data == NULL
+        ? NULL
+        : cJSON_GetObjectItemCaseSensitive(data, "type");
+    if (!cJSON_IsString(type) || type->valuestring == NULL ||
+        strcmp(type->valuestring, "audio_test") != 0) {
+        return false;
+    }
+
+    const cJSON *action = cJSON_GetObjectItemCaseSensitive(data, "action");
+    const cJSON *test_id = cJSON_GetObjectItemCaseSensitive(data, "testId");
+    const cJSON *audio_path = cJSON_GetObjectItemCaseSensitive(data, "audioPath");
+    if (!cJSON_IsString(action) || action->valuestring == NULL ||
+        !cJSON_IsString(test_id) || test_id->valuestring == NULL) {
+        ESP_LOGE(TAG, "Audio test control payload is invalid");
+        return true;
+    }
+
+    esp_err_t err;
+    if (strcmp(action->valuestring, "play") == 0 &&
+        cJSON_IsString(audio_path) && audio_path->valuestring != NULL) {
+        err = voice_engine_start_audio_test(test_id->valuestring, audio_path->valuestring);
+    } else if (strcmp(action->valuestring, "stop") == 0) {
+        err = voice_engine_stop_audio_test(test_id->valuestring);
+    } else {
+        err = ESP_ERR_INVALID_ARG;
+    }
+    if (err != ESP_OK) {
+        char message[96];
+        snprintf(message, sizeof(message), "Audio test control rejected: %s", esp_err_to_name(err));
+        mqtt_agent_report_audio_test(test_id->valuestring, "FAILED", message);
+        ESP_LOGE(TAG, "%s", message);
+    }
+    return true;
+}
+
 static void publish_registration(void)
 {
     cJSON *data = cJSON_CreateObject();
@@ -229,6 +354,11 @@ static void publish_registration(void)
     cJSON_AddBoolToObject(capabilities, "uartBridge", DX_ENABLE_UART_BRIDGE);
     cJSON_AddBoolToObject(capabilities, "textSimulation", DX_ENABLE_TEXT_SIMULATION);
     cJSON_AddBoolToObject(capabilities, "audio", DX_ENABLE_AUDIO);
+    cJSON_AddBoolToObject(
+        capabilities,
+        "voiceTestControl",
+        DX_TARGET_BOARD == DX_BOARD_C3_LICHUANG_AUDIO
+    );
     cJSON_AddBoolToObject(capabilities, "directControl", true);
     cJSON_AddBoolToObject(
         capabilities,
@@ -390,6 +520,18 @@ static void mqtt_task(void *arg)
         s_command_topic,
         sizeof(s_command_topic),
         "dongxin/v1/devices/%s/down/command",
+        DX_DEVICE_ID
+    );
+    snprintf(
+        s_voice_test_topic,
+        sizeof(s_voice_test_topic),
+        "dongxin/v1/devices/%s/down/voice-test",
+        DX_DEVICE_ID
+    );
+    snprintf(
+        s_audio_test_topic,
+        sizeof(s_audio_test_topic),
+        "dongxin/v1/devices/%s/down/audio-test",
         DX_DEVICE_ID
     );
     static const char offline_message[] =

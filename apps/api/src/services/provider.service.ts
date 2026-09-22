@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { clearLocalEnvValue, isEnvConfigured, setLocalEnvValue } from '../envStore.js';
 import { ApiError } from '../http/apiError.js';
 import * as labDataRepository from '../repositories/labData.repository.js';
+import { getAiServiceDefaults } from '../repositories/aiTesting.repository.js';
 
 export const ProviderParamsSchema = z.object({
   providerId: z.string().min(1)
@@ -11,6 +12,31 @@ export const ProviderParamsSchema = z.object({
 
 export async function listProviders(): Promise<ModelProvider[]> {
   return labDataRepository.listProviders();
+}
+
+export async function getDefaultProviderForService(
+  serviceType: ProviderServiceType,
+): Promise<ModelProvider | null> {
+  const [providers, defaults] = await Promise.all([
+    listProviders(),
+    getAiServiceDefaults(),
+  ]);
+  const configuredId = defaults[serviceType];
+  const configured = configuredId
+    ? providers.find(
+        (provider) =>
+          provider.id === configuredId &&
+          provider.serviceType === serviceType &&
+          provider.enabled,
+      )
+    : null;
+  return (
+    configured ??
+    providers.find(
+      (provider) => provider.serviceType === serviceType && provider.enabled,
+    ) ??
+    null
+  );
 }
 
 export async function saveProviders(providers: ModelProvider[]): Promise<ModelProvider[]> {

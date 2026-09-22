@@ -25,7 +25,7 @@ import { getProductionCostSettings } from "../repositories/productionCost.reposi
 import { appendLog } from "./log.service.js";
 import { answerKnowledgeQuestion } from "./knowledge.service.js";
 import { findPrompt, listPrompts } from "./prompt.service.js";
-import { findProvider, listProviders } from "./provider.service.js";
+import { findProvider, getDefaultProviderForService, listProviders } from "./provider.service.js";
 import { getTestSet } from "./testSet.service.js";
 import {
   executeCommandForDevice,
@@ -35,6 +35,30 @@ import {
 import { intentToDeviceAction } from "./deviceAccess.service.js";
 import { publishQueuedDeviceCommand } from "./mqttGateway.service.js";
 import { synthesizeSpeech, transcribeAudio } from "./speech.service.js";
+
+export async function runLlmModuleTest(input: {
+  deviceId: string;
+  text: string;
+  providerId?: string;
+  promptId?: string;
+}) {
+  const deviceState = await getDeviceState(input.deviceId);
+  const result = await resolveByLlm(
+    input.text.trim(),
+    deviceState,
+    input.providerId,
+    input.promptId,
+  );
+  return {
+    inputText: input.text.trim(),
+    providerId: result.providerId,
+    aiResult: result.aiResult,
+    safetyResult: applySafetyRules(result.aiResult, deviceState),
+    latencyMs: result.latencyMs,
+    usage: result.usage,
+    error: result.error,
+  };
+}
 
 export async function runVoicePipeline(
   requestBody: unknown,
@@ -158,6 +182,25 @@ export async function runVoicePipeline(
     });
   }
 
+  if (body.testMode === "ASR_ONLY") {
+    const safetyResult = noActionSafety("ASR 独立测试不执行语义分析和设备控制");
+    return buildPipelineResponse({
+      sessionId,
+      body,
+      transcript,
+      stages,
+      route: "UNRESOLVED",
+      aiResult: chat(transcript || "未识别到语音文本"),
+      safetyResult,
+      deviceState: await getDeviceState(body.deviceId),
+      commandRecord: null,
+      totalLatencyMs: Math.round(performance.now() - started),
+      cost: buildCost(asrCost, 0, 0, inputTokens, outputTokens, isEstimated),
+      ttsAudioBase64: null,
+      ttsAudioMimeType: null,
+    });
+  }
+
   const wakeResult = resolveWakeWord(transcript || "", body.inputSource);
   addStage(stages, {
     key: "WAKE_WORD",
@@ -174,6 +217,36 @@ export async function runVoicePipeline(
     costCny: 0,
     error: null,
   });
+
+  if (body.requireWakeWord && !wakeResult.detected) {
+    const safetyResult = noActionSafety('未检测到唤醒词“小东小东”');
+    addStage(stages, {
+      key: "SAFETY",
+      label: "安全校验",
+      status: "COMPLETED",
+      source: "WAKE_WORD_GATE",
+      result: safetyResult.decision,
+      detail: safetyResult,
+      latencyMs: 0,
+      costCny: 0,
+      error: null,
+    });
+    return buildPipelineResponse({
+      sessionId,
+      body,
+      transcript,
+      stages,
+      route: "UNRESOLVED",
+      aiResult: chat('未检测到唤醒词“小东小东”，本次语音不执行。'),
+      safetyResult,
+      deviceState: await getDeviceState(body.deviceId),
+      commandRecord: null,
+      totalLatencyMs: Math.round(performance.now() - started),
+      cost: buildCost(asrCost, 0, 0, inputTokens, outputTokens, isEstimated),
+      ttsAudioBase64: null,
+      ttsAudioMimeType: null,
+    });
+  }
 
   const normalizedText = removeWakeWord(transcript || "");
   const offlineMatchedResult =
@@ -559,7 +632,22 @@ async function finishPipeline(input: {
       : safetyResult.speak || input.aiResult.speak;
   let ttsAudioBase64: string | null = null;
   let ttsAudioMimeType: string | null = null;
-  if (input.route === "OFFLINE") {
+  if (!input.body.synthesizeSpeech) {
+    addStage(input.stages, {
+      key: "TTS",
+      label: "TTS 播报",
+      status: "SKIPPED",
+      source: "REQUEST_DISABLED",
+      result: "本次请求仅验证识别和控制结果，未生成播报音频",
+      detail: {
+        inputText: replyText,
+        outputAudio: null,
+      },
+      latencyMs: 0,
+      costCny: 0,
+      error: null,
+    });
+  } else if (input.route === "OFFLINE") {
     addStage(input.stages, {
       key: "TTS",
       label: "TTS 播报",
@@ -642,7 +730,7 @@ function resolveWakeWord(
   text: string,
   inputSource: VoicePipelineRequest["inputSource"],
 ) {
-  const detected = text.includes("小东小东");
+  const detected = normalizeWakeText(text).includes("小东小东");
   return {
     detected,
     source: detected
@@ -656,7 +744,7 @@ function resolveWakeWord(
 function matchOfflineIntent(text: string): AiResult | null {
   const normalized = text.trim();
   if (!normalized) {
-    return chat("您好，我是您的 AI 浴霸助手小东，有什么需要服务的？");
+    return chat("我在");
   }
   if (
     matches(normalized, ["谢谢", "感谢", "辛苦了", "再见", "拜拜", "晚安"]) &&
@@ -797,13 +885,14 @@ async function resolveByLlm(
   providerId: string | undefined,
   promptId: string | undefined,
 ) {
-  const [providers, prompts] = await Promise.all([
+  const [providers, prompts, defaultProvider] = await Promise.all([
     listProviders(),
     listPrompts(),
+    getDefaultProviderForService("LLM"),
   ]);
   const provider = providerId
     ? findProvider(providers, providerId)
-    : providers.find(
+    : defaultProvider || providers.find(
         (item) =>
           item.enabled &&
           item.type === "OPENAI_COMPATIBLE" &&
@@ -1133,10 +1222,14 @@ function matches(text: string, words: string[]): boolean {
 }
 
 function removeWakeWord(text: string): string {
-  return text
+  return normalizeWakeText(text)
     .replace(/小东小东/g, "")
     .replace(/^[，。、“”\s]+|[，。、“”\s]+$/g, "")
     .trim();
+}
+
+function normalizeWakeText(text: string): string {
+  return text.replace(/[，,。.!！?？、\s]+/g, "");
 }
 
 function limitSpeak(text: string): string {

@@ -69,6 +69,7 @@ npm.cmd run dev:legacy-web
 
 设计和东信交付入口：
 
+- [DX-AI-01 Rev.A硬件设计输入书 V1.0](docs/DX-AI-01%20Rev.A硬件设计输入书%20V1.0.md)
 - [C3单主控系统架构与职责边界 V1.0](docs/C3单主控系统架构与职责边界%20V1.0.md)
 - [ESP32-C3与CI1302通信协议 V1.0](docs/ESP32-C3与CI1302通信协议%20V1.0.md)
 - [ESP32-C3与BLE本地控制终端协议 V1.0](docs/ESP32-C3与BLE本地控制终端协议%20V1.0.md)
