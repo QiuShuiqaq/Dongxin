@@ -20,7 +20,7 @@ broker.authenticate = (client, usernameBuffer, passwordBuffer, done) => {
 broker.authorizePublish = (client, packet, done) => {
   const identity = client?.id || '';
   const allowed = isGatewayClient(client)
-    ? /^dongxin\/v1\/devices\/[^/]+\/down\/(command|config|voice-test|audio-test)$/.test(packet.topic)
+    ? /^dongxin\/v1\/devices\/[^/]+\/down\/(command|config|voice-test|audio-test|board-test)$/.test(packet.topic)
     : packet.topic.startsWith(`dongxin/v1/devices/${identity}/up/`);
   done(allowed ? null : new Error(`Publish denied for ${identity}`));
 };

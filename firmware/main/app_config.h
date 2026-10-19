@@ -47,14 +47,21 @@
 #define DX_DEVICE_MODEL "DX-AI-BATH-C3-SUPERMINI"
 #endif
 
-#define DX_FIRMWARE_VERSION "0.4.0-direct-control"
+#define DX_FIRMWARE_VERSION "0.6.0-stm32-monitor"
 #define DX_PROTOCOL_VERSION "1.0"
 
 /* Feature switches for the staged board bring-up. */
 #define DX_ENABLE_WIFI 1
 #define DX_ENABLE_CLOUD 0
 #define DX_ENABLE_MQTT 1
+/* Retired V0.2 simulator protocol. It is incompatible with the current STM32
+ * sample and must remain disabled. A reviewed adapter will replace it. */
 #define DX_ENABLE_UART_BRIDGE 0
+#if DX_TARGET_BOARD == DX_BOARD_C3_LICHUANG_AUDIO
+#define DX_ENABLE_SAMPLE_UART_MONITOR 1
+#else
+#define DX_ENABLE_SAMPLE_UART_MONITOR 0
+#endif
 #if DX_TARGET_BOARD == DX_BOARD_C3_LICHUANG_AUDIO
 #define DX_ENABLE_AUDIO 1
 #else
@@ -64,9 +71,9 @@
 #define DX_ENABLE_NTC_CONTROL 0
 
 /*
- * The current SuperMini has no Dongxin load board attached, so it uses the
- * virtual direct-control HAL. Enable the PCF8574 backend only for a reviewed
- * Dongxin schematic with the final pins filled in below.
+ * Historical cost-reduction research only. The current product baseline keeps
+ * the existing STM32 controller, so PCF8574 direct control must stay disabled.
+ * The virtual HAL remains available for C3 command-queue software tests.
  */
 #define DX_ENABLE_PCF8574 0
 #define DX_PCF8574_I2C_PORT 0
@@ -116,8 +123,8 @@
 #define DX_HTTP_TIMEOUT_MS 5000
 #define DX_WIFI_CONNECT_TIMEOUT_SECONDS 30
 
-/* Lichuang ESP32-C3 audio validation board. The PA stays disabled in the
- * first-stage ASR build; no code path is allowed to play audio at boot. */
+/* Lichuang ESP32-C3 audio validation board. The PA stays disabled at boot and
+ * is enabled only for an explicit, bounded playback request. */
 #define DX_LICHUANG_I2C_PORT 0
 #define DX_LICHUANG_I2C_SDA_GPIO 0
 #define DX_LICHUANG_I2C_SCL_GPIO 1
@@ -130,6 +137,9 @@
 #define DX_LICHUANG_RECORD_BUTTON_GPIO 9
 #define DX_LICHUANG_PA_ENABLE_GPIO 13
 #define DX_LICHUANG_WAKE_ACK_VOLUME 8
+#define DX_LICHUANG_PLAYBACK_DEFAULT_VOLUME 20
+#define DX_LICHUANG_PLAYBACK_MIN_VOLUME 5
+#define DX_LICHUANG_PLAYBACK_MAX_VOLUME 80
 #define DX_VOICE_SAMPLE_RATE 16000
 #define DX_VOICE_BITS_PER_SAMPLE 16
 #define DX_VOICE_CHANNELS 1
@@ -142,8 +152,8 @@
     DX_GATEWAY_BASE_URL "/api/device/v1/voice-pcm?deviceId=" DX_DEVICE_ID \
     "&sampleRate=16000&bitsPerSample=16&channels=1&requireWakeWord=0&synthesizeSpeech=0&testMode=ASR_ONLY"
 
-/* Legacy MCU UART test asset. The new C3 board does not use this path for load
- * control; CI1302 has a separate UART0 control link in its board profile. */
+/* Retired V0.2 MCU simulator protocol. Do not use these pins with the STM32
+ * sample; its real protocol will be implemented in a separate adapter. */
 #if DX_TARGET_BOARD == DX_BOARD_S3
 #define DX_UART_TX_GPIO 17
 #define DX_UART_RX_GPIO 18
@@ -153,5 +163,11 @@
 #endif
 #define DX_UART_BAUD_RATE 115200
 #define DX_MCU_STATE_QUERY_INTERVAL_SECONDS 30
+
+/* Existing Dongxin STM32 sample, receive-only bring-up on the Lichuang board.
+ * GPIO18 is reserved for a future reviewed TX path and is not configured. */
+#define DX_SAMPLE_UART_TX_RESERVED_GPIO 18
+#define DX_SAMPLE_UART_RX_GPIO 19
+#define DX_SAMPLE_UART_BAUD_RATE 115200
 
 #endif

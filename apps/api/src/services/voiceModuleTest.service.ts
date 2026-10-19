@@ -17,6 +17,7 @@ const TtsTestSchema = z.object({
   text: z.string().trim().min(1).max(100),
   providerId: z.string().min(1).optional(),
   target: z.enum(["BROWSER", "DEVICE"]).default("BROWSER"),
+  volumePercent: z.number().int().min(5).max(80).default(20),
 });
 const AudioStatusSchema = z.object({
   deviceId: z.string().min(1),
@@ -46,6 +47,7 @@ interface AudioTestRecord {
   costCny: number;
   durationMs: number;
   byteLength: number;
+  volumePercent: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -86,8 +88,12 @@ export async function testTts(requestBody: unknown) {
     throw new ApiError(409, "AUDIO_TEST_ALREADY_ACTIVE", "该开发板已有语音正在等待或播放，请先停止");
   }
   const device = await getDevice(body.deviceId);
-  if (device.status !== "ONLINE" || !device.model.includes("LICHUANG-AUDIO")) {
-    throw new ApiError(409, "AUDIO_TEST_DEVICE_UNAVAILABLE", "请选择在线的立创 ESP32-C3 音频开发板");
+  if (device.status !== "ONLINE" || device.capabilities?.audioPlayback !== true) {
+    throw new ApiError(
+      409,
+      "AUDIO_TEST_DEVICE_UNAVAILABLE",
+      "设备未在线或当前固件未上报 audioPlayback 播放能力",
+    );
   }
   const result = await synthesizeSpeech({
     text: body.text,
@@ -112,6 +118,7 @@ export async function testTts(requestBody: unknown) {
     costCny: result.costCny,
     durationMs: Math.round((pcm.length / 2 / 16000) * 1000),
     byteLength: pcm.length,
+    volumePercent: body.volumePercent,
     createdAt: now,
     updatedAt: now,
   };
@@ -124,6 +131,7 @@ export async function testTts(requestBody: unknown) {
       testId: record.id,
       action: "play",
       audioPath: `/api/device/v1/audio-tests/${record.id}/pcm`,
+      volumePercent: record.volumePercent,
     });
     patchRecord(record.id, "COMMAND_SENT", "播放命令已发送，等待开发板响应");
     return audioRecords.get(record.id);

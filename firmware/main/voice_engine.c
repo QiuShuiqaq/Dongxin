@@ -62,6 +62,7 @@ typedef struct {
 typedef struct {
     char test_id[AUDIO_TEST_ID_SIZE];
     char audio_path[AUDIO_TEST_PATH_SIZE];
+    int volume_percent;
 } audio_test_request_t;
 
 extern const uint8_t wake_ack_pcm_start[]
@@ -245,10 +246,14 @@ static bool log_pipeline_response(char *response, int status_code)
     return should_play_wake_ack;
 }
 
-static esp_err_t begin_audio_output(void)
+static esp_err_t begin_audio_output(int volume_percent)
 {
     if (s_tx_channel == NULL || s_codec == NULL) {
         return ESP_ERR_INVALID_STATE;
+    }
+    if (volume_percent < DX_LICHUANG_PLAYBACK_MIN_VOLUME ||
+        volume_percent > DX_LICHUANG_PLAYBACK_MAX_VOLUME) {
+        return ESP_ERR_INVALID_ARG;
     }
 
     static const int16_t silence[256] = {0};
@@ -261,7 +266,7 @@ static esp_err_t begin_audio_output(void)
         pdMS_TO_TICKS(250)
     );
     if (err == ESP_OK) {
-        err = es8311_voice_volume_set(s_codec, DX_LICHUANG_WAKE_ACK_VOLUME, NULL);
+        err = es8311_voice_volume_set(s_codec, volume_percent, NULL);
     }
     if (err == ESP_OK) {
         err = es8311_voice_mute(s_codec, false);
@@ -269,6 +274,7 @@ static esp_err_t begin_audio_output(void)
     if (err == ESP_OK) {
         vTaskDelay(pdMS_TO_TICKS(15));
         gpio_set_level((gpio_num_t)DX_LICHUANG_PA_ENABLE_GPIO, 1);
+        ESP_LOGI(TAG, "Audio output enabled at %d%% volume", volume_percent);
         return ESP_OK;
     }
 
@@ -298,7 +304,7 @@ static void end_audio_output(void)
 
 static esp_err_t play_wake_ack(void)
 {
-    esp_err_t err = begin_audio_output();
+    esp_err_t err = begin_audio_output(DX_LICHUANG_WAKE_ACK_VOLUME);
     if (err != ESP_OK) {
         return err;
     }
@@ -368,7 +374,7 @@ static esp_err_t download_and_play_audio_test(const audio_test_request_t *reques
         err = ESP_ERR_INVALID_STATE;
         goto close_connection;
     }
-    err = begin_audio_output();
+    err = begin_audio_output(request->volume_percent);
     if (err != ESP_OK) {
         goto close_connection;
     }
@@ -742,11 +748,17 @@ esp_err_t voice_engine_stop_test(const char *test_session_id)
 #endif
 }
 
-esp_err_t voice_engine_start_audio_test(const char *test_id, const char *audio_path)
+esp_err_t voice_engine_start_audio_test(
+    const char *test_id,
+    const char *audio_path,
+    int volume_percent
+)
 {
 #if DX_TARGET_BOARD == DX_BOARD_C3_LICHUANG_AUDIO
     if (test_id == NULL || audio_path == NULL || test_id[0] == '\0' || audio_path[0] == '\0' ||
-        strlen(test_id) >= AUDIO_TEST_ID_SIZE || strlen(audio_path) >= AUDIO_TEST_PATH_SIZE) {
+        strlen(test_id) >= AUDIO_TEST_ID_SIZE || strlen(audio_path) >= AUDIO_TEST_PATH_SIZE ||
+        volume_percent < DX_LICHUANG_PLAYBACK_MIN_VOLUME ||
+        volume_percent > DX_LICHUANG_PLAYBACK_MAX_VOLUME) {
         return ESP_ERR_INVALID_ARG;
     }
     if (s_audio_test_queue == NULL || s_playback_active || s_playback_pending ||
@@ -756,17 +768,20 @@ esp_err_t voice_engine_start_audio_test(const char *test_id, const char *audio_p
     audio_test_request_t request = {0};
     strncpy(request.test_id, test_id, sizeof(request.test_id) - 1);
     strncpy(request.audio_path, audio_path, sizeof(request.audio_path) - 1);
+    request.volume_percent = volume_percent;
     s_playback_cancel_requested = false;
     s_playback_pending = true;
     if (xQueueSend(s_audio_test_queue, &request, 0) != pdTRUE) {
         s_playback_pending = false;
         return ESP_ERR_NO_MEM;
     }
-    ESP_LOGI(TAG, "Audio test queued from development console: %s", test_id);
+    ESP_LOGI(TAG, "Audio test queued from development console: %s volume=%d%%",
+             test_id, volume_percent);
     return ESP_OK;
 #else
     (void)test_id;
     (void)audio_path;
+    (void)volume_percent;
     return ESP_ERR_NOT_SUPPORTED;
 #endif
 }
@@ -860,7 +875,7 @@ void voice_engine_init(void)
         return;
     }
 
-    ESP_LOGI(TAG, "Silent ASR test mode ready; amplifier GPIO%d remains low",
+    ESP_LOGI(TAG, "Voice test mode ready; amplifier GPIO%d stays low until explicit playback",
              DX_LICHUANG_PA_ENABLE_GPIO);
 #else
     ESP_LOGI(TAG, "CI1302 voice adapter is not enabled for this board profile");

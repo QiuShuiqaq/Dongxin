@@ -166,6 +166,7 @@ export async function publishAudioTestControl(input: {
   testId: string;
   action: 'play' | 'stop';
   audioPath?: string;
+  volumePercent?: number;
 }): Promise<void> {
   const envelope = {
     version: '1.0',
@@ -176,11 +177,37 @@ export async function publishAudioTestControl(input: {
       type: 'audio_test',
       action: input.action,
       testId: input.testId,
-      audioPath: input.audioPath ?? null
+      audioPath: input.audioPath ?? null,
+      volumePercent: input.volumePercent ?? null
     }
   };
   await publish(
     `dongxin/v1/devices/${input.deviceId}/down/audio-test`,
+    JSON.stringify(envelope),
+    1
+  );
+}
+
+export async function publishBoardTestControl(input: {
+  deviceId: string;
+  requestId: string;
+  action: 'snapshot' | 'display_pattern' | 'display_power';
+  params: Record<string, unknown>;
+}): Promise<void> {
+  const envelope = {
+    version: '1.0',
+    messageId: `msg_${randomUUID()}`,
+    deviceId: input.deviceId,
+    sentAt: new Date().toISOString(),
+    data: {
+      type: 'board_test',
+      requestId: input.requestId,
+      action: input.action,
+      params: input.params
+    }
+  };
+  await publish(
+    `dongxin/v1/devices/${input.deviceId}/down/board-test`,
     JSON.stringify(envelope),
     1
   );
@@ -222,6 +249,9 @@ async function handleUpstreamMessage(topic: string, payload: Buffer): Promise<vo
       return;
     case 'audio-test':
       await (await import('./voiceModuleTest.service.js')).handleAudioTestDeviceStatus(body);
+      return;
+    case 'board-test':
+      await (await import('./boardLab.service.js')).handleBoardLabDeviceResult(body);
       return;
     default:
       throw new Error(`Unsupported upstream message type: ${messageType}`);

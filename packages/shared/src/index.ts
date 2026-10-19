@@ -528,6 +528,7 @@ export const DeviceProfileSchema = z.object({
   name: z.string().min(1),
   model: z.string().min(1),
   firmwareVersion: z.string().nullable().optional(),
+  capabilities: z.record(z.string(), z.boolean()).optional(),
   protocol: DeviceProtocolSchema,
   status: DeviceStatusSchema,
   notes: z.string().optional(),
@@ -1103,9 +1104,7 @@ export const ProductCapabilityKeySchema = z.enum([
   "TOUCH_KEYS",
   "PURIFICATION",
 ]);
-export type ProductCapabilityKey = z.infer<
-  typeof ProductCapabilityKeySchema
->;
+export type ProductCapabilityKey = z.infer<typeof ProductCapabilityKeySchema>;
 
 export const ProductCapabilitySupportSchema = z.enum([
   "ENABLED",
@@ -1156,9 +1155,7 @@ export const LocalControllerConfigSchema = z.object({
   encryptedBondingRequired: z.literal(true),
   commandAcknowledgementRequired: z.literal(true),
 });
-export type LocalControllerConfig = z.infer<
-  typeof LocalControllerConfigSchema
->;
+export type LocalControllerConfig = z.infer<typeof LocalControllerConfigSchema>;
 
 export const HardwareDefinitionStatusSchema = z.enum([
   "PLANNED",
@@ -1205,7 +1202,7 @@ export type IoExpanderPort = z.infer<typeof IoExpanderPortSchema>;
 
 export const BoardBusNodeSchema = z.object({
   id: z.string().min(1),
-  bus: z.enum(["I2C", "UART", "I2S", "ADC", "BLE", "USB"]),
+  bus: z.enum(["I2C", "SPI", "UART", "I2S", "ADC", "BLE", "USB"]),
   name: z.string().min(1),
   endpoint: z.string().min(1),
   parameters: z.string().min(1),
@@ -1221,7 +1218,12 @@ export const BoardProfileSchema = z.object({
   role: z.enum(["DEVELOPMENT", "PRODUCTION_CANDIDATE"]),
   controller: z.enum(["ESP32_C3", "ESP32_S3"]),
   lifecycle: z.enum(["ACTIVE", "DRAFT", "FROZEN", "RETIRED"]),
-  executionMode: z.enum(["LOCAL_VIRTUAL", "LOCAL_PHYSICAL"]),
+  executionMode: z.enum([
+    "LOCAL_VIRTUAL",
+    "LOCAL_PHYSICAL",
+    "STM32_UART_MONITOR",
+    "STM32_UART_CONTROL",
+  ]),
   loadVoltageScope: z.enum(["LOGIC_ONLY", "LOW_VOLTAGE", "MAINS"]),
   flashSizeMB: z.number().int().positive(),
   summary: z.string().min(1),
@@ -1274,7 +1276,7 @@ export const ProductProfileSchema = z.object({
   model: z.string().min(1),
   deviceModelAliases: z.array(z.string().min(1)).default([]),
   status: z.enum(["DRAFT", "ACTIVE", "RETIRED"]),
-  controller: z.enum(["ESP32_C3", "ESP32_S3"]),
+  controller: z.enum(["ESP32_C3", "ESP32_S3", "STM32_WITH_ESP32_C3_GATEWAY"]),
   voiceProcessor: z.enum(["CI1302", "CI1303", "NONE"]),
   ioExpander: z.string().min(1),
   ioExpansion: IoExpansionConfigSchema,
@@ -1282,11 +1284,7 @@ export const ProductProfileSchema = z.object({
   localControllers: LocalControllerConfigSchema,
   flashSizeMB: z.number().int().min(4),
   otaReserved: z.boolean(),
-  remoteTechnology: z.enum([
-    "ESP32_C3_BLE",
-    "2_4G_DEDICATED_RX",
-    "NONE",
-  ]),
+  remoteTechnology: z.enum(["ESP32_C3_BLE", "2_4G_DEDICATED_RX", "NONE"]),
   capabilities: z.array(ProductCapabilitySchema),
   safetyDefaults: z.object({
     targetTemperatureMinCelsius: z.number().int().min(0).max(80),
@@ -1326,9 +1324,7 @@ export const OfflineVoiceCommandSchema = z.object({
   feedbackTone: z.enum(["CONFIRM", "REJECT", "NONE"]).default("CONFIRM"),
   enabled: z.boolean().default(true),
 });
-export type OfflineVoiceCommand = z.infer<
-  typeof OfflineVoiceCommandSchema
->;
+export type OfflineVoiceCommand = z.infer<typeof OfflineVoiceCommandSchema>;
 
 export const VoiceResourceSchema = z.object({
   fileName: z.string().min(1),

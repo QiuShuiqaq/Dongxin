@@ -1,46 +1,75 @@
 import {
   AlertOutlined,
-  ApiOutlined,
   AppstoreOutlined,
-  AuditOutlined,
-  BellOutlined,
-  CheckCircleFilled,
   CloudServerOutlined,
-  CustomerServiceOutlined,
   DatabaseOutlined,
-  DeploymentUnitOutlined,
   DesktopOutlined,
-  FileProtectOutlined,
-  HistoryOutlined,
   ReloadOutlined,
-  RocketOutlined,
-  QrcodeOutlined,
-  SafetyCertificateOutlined,
   SettingOutlined,
-  TeamOutlined,
-  ThunderboltOutlined,
-  WarningFilled,
 } from "@ant-design/icons";
-import type { DeviceCommandRecord, DeviceEvent, DeviceProfile, ProductProfile, SystemLog } from "@dongxin/shared";
-import { Alert, App, Badge, Button, Descriptions, Empty, Progress, Select, Skeleton, Space, Table, Tag, Tooltip } from "antd";
+import type {
+  DeviceCommandRecord,
+  DeviceEvent,
+  DeviceProfile,
+  KnowledgeCategory,
+  KnowledgeDocument,
+  ProactiveMode,
+  SystemLog,
+} from "@dongxin/shared";
+import {
+  Alert,
+  App,
+  Badge,
+  Button,
+  Empty,
+  Input,
+  InputNumber,
+  Select,
+  Skeleton,
+  Space,
+  Switch,
+  Table,
+  Tag,
+  Tooltip,
+} from "antd";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { getOperationsConsole } from "./api";
+import {
+  createKnowledgeDocument,
+  getOperationsConsole,
+  updateProactiveSettings,
+} from "./api";
 import type { OperationsConsoleData } from "./api";
 
-type Section = "overview" | "devices" | "provisioning" | "bindings" | "alerts" | "releases" | "ai" | "audit" | "system";
+type Section =
+  "overview" | "devices" | "knowledge" | "ai" | "records" | "system";
 
 const sectionMeta: Record<Section, { label: string; description: string }> = {
-  overview: { label: "运营总览", description: "生产设备、服务健康和待处理事项" },
-  devices: { label: "设备中心", description: "设备档案、在线状态、固件与通信质量" },
-  provisioning: { label: "生产接入", description: "出厂身份、自动注册、首次上线与二维码状态" },
-  bindings: { label: "激活与绑定", description: "设备激活、二维码和用户归属管理" },
-  alerts: { label: "告警与售后", description: "故障告警、处理记录和售后诊断" },
-  releases: { label: "版本发布", description: "审批后的产品版本、灰度和回滚" },
-  ai: { label: "AI 运营", description: "生产模型、语音资源、知识库和服务成本" },
-  audit: { label: "审计安全", description: "账号、角色和高风险操作记录" },
-  system: { label: "基础设施", description: "IoT、数据库、缓存和网关运行状态" },
+  overview: {
+    label: "运营总览",
+    description: "设备在线情况、服务状态和待处理问题",
+  },
+  devices: {
+    label: "设备管理",
+    description: "设备档案、在线状态、固件和最近通信",
+  },
+  knowledge: { label: "知识库", description: "维护产品、使用、故障和售后资料" },
+  ai: { label: "AI 运营", description: "查看线上模型并管理主动沟通策略" },
+  records: {
+    label: "告警与日志",
+    description: "查询设备故障、控制结果和系统记录",
+  },
+  system: { label: "系统状态", description: "检查平台部署依赖和上线门禁" },
 };
+
+const categoryOptions: Array<{ value: KnowledgeCategory; label: string }> = [
+  { value: "PRODUCT", label: "产品资料" },
+  { value: "INSTALL", label: "安装说明" },
+  { value: "USAGE", label: "使用说明" },
+  { value: "TROUBLESHOOTING", label: "故障处理" },
+  { value: "AFTER_SALES", label: "售后规则" },
+  { value: "MAINTENANCE", label: "保养清洁" },
+];
 
 export default function OperationsConsole() {
   const { message } = App.useApp();
@@ -51,38 +80,137 @@ export default function OperationsConsole() {
 
   async function refresh(silent = false) {
     if (!silent) setLoading(true);
-    try { setData(await getOperationsConsole()); }
-    catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
-    finally { setLoading(false); }
+    try {
+      setData(await getOperationsConsole());
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoading(false);
+    }
   }
 
-  useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(true), 10000); return () => window.clearInterval(timer); }, []);
-  function navigate(next: Section) { setSection(next); window.history.replaceState(null, "", `#${next}`); }
-  const meta = sectionMeta[section];
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => void refresh(true), 10_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
+  function navigate(next: Section) {
+    setSection(next);
+    window.history.replaceState(null, "", `#${next}`);
+  }
+
+  const meta = sectionMeta[section];
   return (
     <div className="ops-shell">
       <aside className="ops-sidebar">
-        <div className="ops-brand"><div className="ops-mark">DX</div><div><strong>东信设备运营平台</strong><span>Operations Console</span></div></div>
-        <nav>
-          <NavGroup label="运营"><Nav active={section === "overview"} icon={<AppstoreOutlined />} label="运营总览" onClick={() => navigate("overview")} /><Nav active={section === "devices"} icon={<DesktopOutlined />} label="设备中心" onClick={() => navigate("devices")} /><Nav active={section === "provisioning"} icon={<ApiOutlined />} label="生产接入" onClick={() => navigate("provisioning")} /><Nav active={section === "bindings"} icon={<TeamOutlined />} label="激活与绑定" onClick={() => navigate("bindings")} /></NavGroup>
-          <NavGroup label="服务"><Nav active={section === "alerts"} icon={<AlertOutlined />} label="告警与售后" badge={data?.metrics.openAlerts} onClick={() => navigate("alerts")} /><Nav active={section === "releases"} icon={<RocketOutlined />} label="版本发布" onClick={() => navigate("releases")} /><Nav active={section === "ai"} icon={<CloudServerOutlined />} label="AI 运营" onClick={() => navigate("ai")} /></NavGroup>
-          <NavGroup label="管理"><Nav active={section === "audit"} icon={<AuditOutlined />} label="审计安全" onClick={() => navigate("audit")} /><Nav active={section === "system"} icon={<SettingOutlined />} label="基础设施" onClick={() => navigate("system")} /></NavGroup>
+        <div className="ops-brand">
+          <div className="ops-mark">DX</div>
+          <div>
+            <strong>东信设备运营平台</strong>
+            <span>Operations Console</span>
+          </div>
+        </div>
+        <nav aria-label="运营平台导航">
+          <NavGroup label="日常运营">
+            <Nav
+              active={section === "overview"}
+              icon={<AppstoreOutlined />}
+              label="运营总览"
+              onClick={() => navigate("overview")}
+            />
+            <Nav
+              active={section === "devices"}
+              icon={<DesktopOutlined />}
+              label="设备管理"
+              onClick={() => navigate("devices")}
+            />
+            <Nav
+              active={section === "records"}
+              icon={<AlertOutlined />}
+              label="告警与日志"
+              badge={data?.metrics.openAlerts}
+              onClick={() => navigate("records")}
+            />
+          </NavGroup>
+          <NavGroup label="内容与服务">
+            <Nav
+              active={section === "knowledge"}
+              icon={<DatabaseOutlined />}
+              label="知识库"
+              onClick={() => navigate("knowledge")}
+            />
+            <Nav
+              active={section === "ai"}
+              icon={<CloudServerOutlined />}
+              label="AI 运营"
+              onClick={() => navigate("ai")}
+            />
+          </NavGroup>
+          <NavGroup label="平台">
+            <Nav
+              active={section === "system"}
+              icon={<SettingOutlined />}
+              label="系统状态"
+              onClick={() => navigate("system")}
+            />
+          </NavGroup>
         </nav>
-        <div className="ops-user"><div className="avatar">管</div><div><strong>平台管理员</strong><span>东信内部账号</span></div></div>
+        <div className="ops-user">
+          <div className="avatar">管</div>
+          <div>
+            <strong>平台管理员</strong>
+            <span>东信内部账号</span>
+          </div>
+        </div>
       </aside>
+
       <main className="ops-main">
-        <header className="ops-header"><div><h1>{meta.label}</h1><p>{meta.description}</p></div><Space><Tag color="orange">预生产环境</Tag><Badge status={data?.mqtt.connected ? "success" : "error"} text={data?.mqtt.connected ? "服务正常" : "服务异常"} /><Tooltip title="刷新运营数据"><Button icon={<ReloadOutlined />} loading={loading} onClick={() => void refresh()} aria-label="刷新" /></Tooltip></Space></header>
+        <header className="ops-header">
+          <div>
+            <h1>{meta.label}</h1>
+            <p>{meta.description}</p>
+          </div>
+          <Space>
+            <Tag color="orange">部署准备阶段</Tag>
+            <Badge
+              status={data?.mqtt.connected ? "success" : "error"}
+              text={data?.mqtt.connected ? "服务正常" : "服务异常"}
+            />
+            <Tooltip title="刷新运营数据">
+              <Button
+                icon={<ReloadOutlined />}
+                loading={loading}
+                onClick={() => void refresh()}
+                aria-label="刷新"
+              />
+            </Tooltip>
+          </Space>
+        </header>
         <div className="ops-content">
-          {loading && !data ? <Skeleton active paragraph={{ rows: 12 }} /> : null}
-          {data && section === "overview" ? <Overview data={data} onNavigate={navigate} /> : null}
-          {data && section === "devices" ? <Devices data={data} filter={deviceFilter} onFilter={setDeviceFilter} /> : null}
-          {data && section === "provisioning" ? <Provisioning data={data} /> : null}
-          {data && section === "bindings" ? <Bindings data={data} /> : null}
-          {data && section === "alerts" ? <Alerts alerts={data.alerts} /> : null}
-          {data && section === "releases" ? <Releases products={data.products} /> : null}
-          {data && section === "ai" ? <AiOperations data={data} /> : null}
-          {data && section === "audit" ? <Audit logs={data.auditLogs} commands={data.recentCommands} /> : null}
+          {loading && !data ? (
+            <Skeleton active paragraph={{ rows: 12 }} />
+          ) : null}
+          {data && section === "overview" ? (
+            <Overview data={data} onNavigate={navigate} />
+          ) : null}
+          {data && section === "devices" ? (
+            <Devices
+              data={data}
+              filter={deviceFilter}
+              onFilter={setDeviceFilter}
+            />
+          ) : null}
+          {data && section === "knowledge" ? (
+            <KnowledgeOperations
+              documents={data.knowledgeDocuments}
+              onChanged={() => refresh(true)}
+            />
+          ) : null}
+          {data && section === "ai" ? (
+            <AiOperations data={data} onChanged={() => refresh(true)} />
+          ) : null}
+          {data && section === "records" ? <Records data={data} /> : null}
           {data && section === "system" ? <SystemPage data={data} /> : null}
         </div>
       </main>
@@ -90,121 +218,760 @@ export default function OperationsConsole() {
   );
 }
 
-function Overview({ data, onNavigate }: { data: OperationsConsoleData; onNavigate: (section: Section) => void }) {
-  const onlineRate = data.metrics.totalDevices ? Math.round(data.metrics.onlineDevices / data.metrics.totalDevices * 100) : 0;
-  const realDevices = data.devices.filter((item) => item.protocol !== "SIMULATOR");
-  return <div className="ops-stack">
-    <section className="ops-metrics"><Metric label="设备总数" value={String(data.metrics.totalDevices)} detail={`${realDevices.length}台真实接入`} /><Metric label="在线率" value={`${onlineRate}%`} detail={`${data.metrics.onlineDevices}台在线`} tone="good" /><Metric label="开放告警" value={String(data.metrics.openAlerts)} detail="需运维确认" tone={data.metrics.openAlerts ? "warn" : "good"} /><Metric label="命令成功率" value={`${data.metrics.commandSuccessRate}%`} detail="历史终态命令" /></section>
-    <Alert type="warning" showIcon title="当前是预生产数据" description="平台仍使用本地JSON与本地MQTT，尚未启用生产账号、阿里云IoT、RDS及Redis，不可承载真实消费者设备。" />
-    <div className="ops-two-columns">
-      <section className="ops-panel"><PanelTitle title="设备健康" action={<Button type="link" onClick={() => onNavigate("devices")}>全部设备</Button>} /><div className="health-list">{data.devices.map((device) => <DeviceHealth key={device.id} device={device} events={data.recentEvents} />)}</div></section>
-      <section className="ops-panel"><PanelTitle title="待处理事项" /><div className="todo-list"><Todo icon={<DatabaseOutlined />} title="迁移生产数据层" detail="RDS PostgreSQL / Redis 尚未配置" level="阻塞上线" /><Todo icon={<SafetyCertificateOutlined />} title="配置内部员工认证" detail="账号密码 + 可选微信扫码" level="阻塞上线" /><Todo icon={<DeploymentUnitOutlined />} title="接入阿里云IoT" detail="独立deviceSecret与设备生命周期" level="计划中" /><Todo icon={<FileProtectOutlined />} title="建立发布审批" detail="仅允许发布已验收研发包" level="计划中" /></div></section>
-    </div>
-    <section className="ops-panel"><PanelTitle title="最近设备命令" /><CommandTable commands={data.recentCommands.slice(0, 8)} /></section>
-  </div>;
-}
-
-function Devices({ data, filter, onFilter }: { data: OperationsConsoleData; filter: string; onFilter: (value: string) => void }) {
-  const rows = useMemo(() => data.devices.filter((device) => filter === "ALL" || device.status === filter), [data.devices, filter]);
-  return <div className="ops-stack"><div className="list-toolbar"><div><strong>{rows.length}</strong><span>台设备</span></div><Select value={filter} onChange={onFilter} options={[{ value: "ALL", label: "全部状态" }, { value: "ONLINE", label: "在线" }, { value: "OFFLINE", label: "离线" }, { value: "FAULT", label: "故障" }]} /></div><section className="ops-panel"><Table rowKey="id" scroll={{ x: 980 }} dataSource={rows} pagination={false} columns={[
-    { title: "设备", dataIndex: "name", render: (_: string, row: DeviceProfile) => <div className="device-name"><span className={`device-dot ${row.status.toLowerCase()}`} /><div><strong>{row.name}</strong><code>{row.id}</code></div></div> },
-    { title: "产品型号", dataIndex: "model", width: 230 },
-    { title: "固件版本", dataIndex: "firmwareVersion", width: 180, render: (value: string | null) => value || "未上报" },
-    { title: "协议", dataIndex: "protocol", width: 100, render: (value: string) => <Tag>{value}</Tag> },
-    { title: "状态", dataIndex: "status", width: 100, render: (value: string) => <DeviceStatus status={value} /> },
-    { title: "最近更新", dataIndex: "updatedAt", width: 180, render: formatDate },
-  ]} /></section></div>;
-}
-
-function Provisioning({ data }: { data: OperationsConsoleData }) {
-  const registered = data.devices.filter((device) => device.protocol === "MQTT");
-  const online = registered.filter((device) => device.status === "ONLINE");
-  const legacyIdentity = registered.filter((device) => isDevelopmentIdentity(device));
-  const engineeringUrl = import.meta.env.VITE_ENGINEERING_CONSOLE_URL || "http://127.0.0.1:3010/#flashing";
-  return <div className="ops-stack">
-    <Alert type="info" showIcon title="自动接入与用户绑定是两个独立步骤" description="设备凭独立密钥联网后自动创建设备档案；消费者仍需扫描机身二维码完成归属绑定。" />
-    <section className="ops-metrics">
-      <Metric label="已自动登记" value={String(registered.length)} detail="MQTT 注册事件" />
-      <Metric label="当前在线" value={String(online.length)} detail="首次上线后持续心跳" />
-      <Metric label="研发静态身份" value={String(legacyIdentity.length)} detail="量产前必须替换" tone={legacyIdentity.length ? "warn" : undefined} />
-      <Metric label="量产独立凭证" value={String(registered.length - legacyIdentity.length)} detail="DeviceSecret / NVS" />
-    </section>
-    <section className="ops-panel provisioning-flow-section">
-      <PanelTitle title="生产接入流程" action={<Button href={engineeringUrl} target="_blank" icon={<DeploymentUnitOutlined />}>打开研发烧录台</Button>} />
-      <div className="provisioning-flow">
-        <ProvisionStep index="01" title="烧录公共固件" detail="同型号共用经过审核的固件镜像" />
-        <ProvisionStep index="02" title="注入唯一身份" detail="序列号、DeviceName、独立 DeviceSecret" />
-        <ProvisionStep index="03" title="联网自动注册" detail="IoT 鉴权通过后平台自动建档" />
-        <ProvisionStep index="04" title="工厂自检" detail="网络、IO、音频和安全项留档" />
-        <ProvisionStep index="05" title="生成机身二维码" detail="消费者扫码绑定设备归属" icon={<QrcodeOutlined />} />
+function Overview({
+  data,
+  onNavigate,
+}: {
+  data: OperationsConsoleData;
+  onNavigate: (section: Section) => void;
+}) {
+  const onlineRate = data.metrics.totalDevices
+    ? Math.round((data.metrics.onlineDevices / data.metrics.totalDevices) * 100)
+    : 0;
+  return (
+    <div className="ops-stack">
+      <section className="ops-metrics">
+        <Metric
+          label="设备总数"
+          value={String(data.metrics.totalDevices)}
+          detail={`${data.metrics.onlineDevices}台在线`}
+        />
+        <Metric
+          label="在线率"
+          value={`${onlineRate}%`}
+          detail="按最近心跳计算"
+          tone="good"
+        />
+        <Metric
+          label="开放告警"
+          value={String(data.metrics.openAlerts)}
+          detail="需要运维确认"
+          tone={data.metrics.openAlerts ? "warn" : "good"}
+        />
+        <Metric
+          label="命令成功率"
+          value={
+            data.metrics.completedCommands
+              ? `${data.metrics.commandSuccessRate}%`
+              : "-"
+          }
+          detail={
+            data.metrics.completedCommands ? "历史终态命令" : "暂无生产命令"
+          }
+        />
+      </section>
+      <Alert
+        type="warning"
+        showIcon
+        title="当前仍是本地预生产环境"
+        description="平台功能正在按服务器部署范围收口。正式上线前还需要员工登录、数据库迁移、设备独立密钥、HTTPS、备份和监控。"
+      />
+      <div className="ops-two-columns">
+        <section className="ops-panel">
+          <PanelTitle
+            title="设备健康"
+            action={
+              <Button type="link" onClick={() => onNavigate("devices")}>
+                查看全部
+              </Button>
+            }
+          />
+          <div className="health-list">
+            {data.devices.length ? (
+              data.devices
+                .slice(0, 8)
+                .map((device) => (
+                  <DeviceHealth
+                    key={device.id}
+                    device={device}
+                    events={data.recentEvents}
+                  />
+                ))
+            ) : (
+              <Empty description="暂无真实设备" />
+            )}
+          </div>
+        </section>
+        <section className="ops-panel">
+          <PanelTitle title="内容与服务" />
+          <div className="ops-summary-list">
+            <SummaryRow
+              label="知识文档"
+              value={`${data.knowledgeDocuments.length} 条`}
+              onClick={() => onNavigate("knowledge")}
+            />
+            <SummaryRow
+              label="已启用AI服务"
+              value={`${data.providers.filter((item) => item.enabled).length} 个`}
+              onClick={() => onNavigate("ai")}
+            />
+            <SummaryRow
+              label="主动沟通"
+              value={data.proactiveSettings.enabled ? "已开启" : "已关闭"}
+              onClick={() => onNavigate("ai")}
+            />
+            <SummaryRow
+              label="系统日志"
+              value={`${data.auditLogs.length} 条`}
+              onClick={() => onNavigate("records")}
+            />
+          </div>
+        </section>
       </div>
-    </section>
-    <section className="ops-panel">
-      <PanelTitle title="最近接入设备" action={<Tag>{registered.length} 台</Tag>} />
-      <Table rowKey="id" pagination={false} scroll={{ x: 900 }} dataSource={registered} columns={[
-        { title: "设备 ID", dataIndex: "id", width: 260, render: (value: string) => <code>{value}</code> },
-        { title: "产品型号", dataIndex: "model", width: 230 },
-        { title: "身份来源", width: 130, render: (_: unknown, device: DeviceProfile) => isDevelopmentIdentity(device) ? <Tag color="orange">研发静态凭证</Tag> : <Tag color="green">独立凭证</Tag> },
-        { title: "联网状态", dataIndex: "status", width: 110, render: (value: string) => <Badge status={value === "ONLINE" ? "success" : "default"} text={value === "ONLINE" ? "在线" : "离线"} /> },
-        { title: "首次登记", dataIndex: "createdAt", width: 170, render: formatDate },
-        { title: "消费者归属", width: 120, render: () => <Tag>未绑定</Tag> },
-      ]} />
-    </section>
-    <Alert type={legacyIdentity.length ? "warning" : "success"} showIcon title={legacyIdentity.length ? "当前样板仍使用固件内置的研发凭证" : "当前设备均使用独立身份"} description={legacyIdentity.length ? "多块板直接刷同一镜像会被平台识别为同一台设备。量产流程必须增加唯一 NVS 身份分区注入，不能把产品级公共密钥写进设备。" : "设备身份已满足量产接入要求。"} />
-  </div>;
+      <section className="ops-panel">
+        <PanelTitle title="最近设备命令" />
+        <CommandTable commands={data.recentCommands.slice(0, 8)} />
+      </section>
+    </div>
+  );
 }
 
-function ProvisionStep({ index, title, detail, icon }: { index: string; title: string; detail: string; icon?: ReactNode }) {
-  return <div className="provision-step"><span>{icon || index}</span><strong>{title}</strong><small>{detail}</small></div>;
+function Devices({
+  data,
+  filter,
+  onFilter,
+}: {
+  data: OperationsConsoleData;
+  filter: string;
+  onFilter: (value: string) => void;
+}) {
+  const rows = useMemo(
+    () =>
+      data.devices.filter(
+        (device) => filter === "ALL" || device.status === filter,
+      ),
+    [data.devices, filter],
+  );
+  return (
+    <div className="ops-stack">
+      <div className="list-toolbar">
+        <div>
+          <strong>{rows.length}</strong>
+          <span>台设备</span>
+        </div>
+        <Select
+          value={filter}
+          onChange={onFilter}
+          options={[
+            { value: "ALL", label: "全部状态" },
+            { value: "ONLINE", label: "在线" },
+            { value: "OFFLINE", label: "离线" },
+            { value: "FAULT", label: "故障" },
+          ]}
+        />
+      </div>
+      <section className="ops-panel">
+        <Table
+          rowKey="id"
+          scroll={{ x: 980 }}
+          dataSource={rows}
+          pagination={false}
+          locale={{ emptyText: "暂无已接入设备" }}
+          columns={[
+            {
+              title: "设备",
+              dataIndex: "name",
+              render: (_: string, row: DeviceProfile) => (
+                <div className="device-name">
+                  <span className={`device-dot ${row.status.toLowerCase()}`} />
+                  <div>
+                    <strong>{row.name}</strong>
+                    <code>{row.id}</code>
+                  </div>
+                </div>
+              ),
+            },
+            { title: "产品型号", dataIndex: "model", width: 230 },
+            {
+              title: "固件版本",
+              dataIndex: "firmwareVersion",
+              width: 180,
+              render: (value: string | null) => value || "未上报",
+            },
+            {
+              title: "协议",
+              dataIndex: "protocol",
+              width: 100,
+              render: (value: string) => <Tag>{value}</Tag>,
+            },
+            {
+              title: "状态",
+              dataIndex: "status",
+              width: 100,
+              render: (value: string) => <DeviceStatus status={value} />,
+            },
+            {
+              title: "最近更新",
+              dataIndex: "updatedAt",
+              width: 180,
+              render: formatDate,
+            },
+          ]}
+        />
+      </section>
+    </div>
+  );
 }
 
-function isDevelopmentIdentity(device: DeviceProfile): boolean {
-  return device.id === "DX-C3-LICHUANG-AUDIO-001" || device.id === "DX-C3-SUPERMINI-HW466AB-001" || device.id.endsWith("-DEVKIT-001");
+function KnowledgeOperations({
+  documents,
+  onChanged,
+}: {
+  documents: KnowledgeDocument[];
+  onChanged: () => Promise<void> | void;
+}) {
+  const { message } = App.useApp();
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState<KnowledgeCategory>("PRODUCT");
+  const [content, setContent] = useState("");
+  const [tags, setTags] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!title.trim() || !content.trim()) {
+      message.warning("请填写资料名称和正文");
+      return;
+    }
+    setSaving(true);
+    try {
+      await createKnowledgeDocument({
+        title: title.trim(),
+        category,
+        content: content.trim(),
+        tags: tags
+          .split(/[，,]/)
+          .map((item) => item.trim())
+          .filter(Boolean),
+        status: "PUBLISHED",
+      });
+      setTitle("");
+      setContent("");
+      setTags("");
+      await onChanged();
+      message.success("知识资料已保存");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="ops-stack">
+      <Alert
+        type="info"
+        showIcon
+        title="只录入已确认的正式资料"
+        description="产品说明、安装维护、故障码和售后规则应注明版本；资料没有明确答案时，系统统一引导联系官方售后。"
+      />
+      <div className="ops-two-columns knowledge-layout">
+        <section className="ops-panel knowledge-editor">
+          <PanelTitle title="新增资料" />
+          <label>
+            <span>资料名称</span>
+            <Input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="例如：DX-AI-01使用说明"
+            />
+          </label>
+          <label>
+            <span>分类</span>
+            <Select
+              value={category}
+              onChange={setCategory}
+              options={categoryOptions}
+            />
+          </label>
+          <label>
+            <span>标签</span>
+            <Input
+              value={tags}
+              onChange={(event) => setTags(event.target.value)}
+              placeholder="多个标签用逗号分隔"
+            />
+          </label>
+          <label>
+            <span>正文</span>
+            <Input.TextArea
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              rows={10}
+              placeholder="粘贴经确认的产品资料内容"
+            />
+          </label>
+          <Button type="primary" loading={saving} onClick={() => void save()}>
+            保存并发布
+          </Button>
+        </section>
+        <section className="ops-panel">
+          <PanelTitle
+            title="资料清单"
+            action={<Tag>{documents.length} 条</Tag>}
+          />
+          <Table
+            rowKey="id"
+            size="small"
+            dataSource={documents}
+            pagination={{ pageSize: 10, showSizeChanger: false }}
+            locale={{ emptyText: "等待导入东信正式资料" }}
+            columns={[
+              { title: "名称", dataIndex: "title", ellipsis: true },
+              {
+                title: "分类",
+                dataIndex: "category",
+                width: 110,
+                render: (value: KnowledgeCategory) =>
+                  categoryOptions.find((item) => item.value === value)?.label ||
+                  value,
+              },
+              {
+                title: "状态",
+                dataIndex: "status",
+                width: 90,
+                render: (value: string) => (
+                  <Tag color={value === "PUBLISHED" ? "green" : "default"}>
+                    {value === "PUBLISHED" ? "已发布" : "草稿"}
+                  </Tag>
+                ),
+              },
+              {
+                title: "更新",
+                dataIndex: "updatedAt",
+                width: 165,
+                render: formatDate,
+              },
+            ]}
+          />
+        </section>
+      </div>
+    </div>
+  );
 }
 
-function Bindings({ data }: { data: OperationsConsoleData }) {
-  return <div className="ops-stack"><Alert type="info" showIcon title="第一版归属策略：一台设备仅归属一个微信用户，不做家庭与多人共享" /><section className="ops-panel"><PanelTitle title="激活流程" /><div className="activation-flow"><FlowStep number="01" title="设备上电" note="使用出厂deviceSecret连接IoT" /><FlowLine /><FlowStep number="02" title="自动注册" note="平台核验产品与凭证" /><FlowLine /><FlowStep number="03" title="用户扫码" note="微信登录并扫描机身二维码" /><FlowLine /><FlowStep number="04" title="完成绑定" note="建立单设备归属" /></div></section><section className="ops-panel"><PanelTitle title="当前设备归属" action={<Button disabled>批量导入</Button>} /><Table rowKey="id" scroll={{ x: 860 }} dataSource={data.devices} pagination={false} columns={[
-    { title: "设备序列号", dataIndex: "id" }, { title: "产品型号", dataIndex: "model" }, { title: "激活状态", render: () => <Tag color="orange">研发样机</Tag> }, { title: "用户归属", render: () => <span className="muted">未绑定消费者</span> }, { title: "操作", render: () => <Button type="link" disabled>生成二维码</Button> }
-  ]} /></section></div>;
+function AiOperations({
+  data,
+  onChanged,
+}: {
+  data: OperationsConsoleData;
+  onChanged: () => Promise<void> | void;
+}) {
+  const { message } = App.useApp();
+  const [enabled, setEnabled] = useState(data.proactiveSettings.enabled);
+  const [mode, setMode] = useState<ProactiveMode>(data.proactiveSettings.mode);
+  const [interval, setIntervalMinutes] = useState(
+    data.proactiveSettings.minIntervalMinutes,
+  );
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setEnabled(data.proactiveSettings.enabled);
+    setMode(data.proactiveSettings.mode);
+    setIntervalMinutes(data.proactiveSettings.minIntervalMinutes);
+  }, [data.proactiveSettings]);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await updateProactiveSettings({
+        enabled,
+        mode,
+        minIntervalMinutes: interval,
+      });
+      await onChanged();
+      message.success("主动沟通设置已更新");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="ops-stack">
+      <section className="ops-panel">
+        <PanelTitle title="线上AI服务" />
+        <Table
+          rowKey="id"
+          size="small"
+          pagination={false}
+          dataSource={data.providers}
+          columns={[
+            {
+              title: "类型",
+              dataIndex: "serviceType",
+              width: 90,
+              render: (value: string) => <Tag>{value}</Tag>,
+            },
+            { title: "服务", dataIndex: "name" },
+            { title: "模型", dataIndex: "model", ellipsis: true },
+            {
+              title: "状态",
+              dataIndex: "enabled",
+              width: 100,
+              render: (value: boolean) => (
+                <Badge
+                  status={value ? "success" : "default"}
+                  text={value ? "启用" : "停用"}
+                />
+              ),
+            },
+          ]}
+        />
+      </section>
+      <section className="ops-panel proactive-settings">
+        <PanelTitle title="主动沟通" />
+        <div className="setting-row">
+          <div>
+            <strong>启用主动沟通</strong>
+            <span>关闭后仍记录设备事件，但不生成主动播报</span>
+          </div>
+          <Switch checked={enabled} onChange={setEnabled} />
+        </div>
+        <div className="setting-row">
+          <div>
+            <strong>话术模式</strong>
+            <span>第一版仅影响提醒措辞和安静策略</span>
+          </div>
+          <Select
+            value={mode}
+            onChange={setMode}
+            options={[
+              { value: "PRACTICAL", label: "实用提醒" },
+              { value: "RELAXED", label: "轻松模式" },
+              { value: "QUIET", label: "安静模式" },
+            ]}
+          />
+        </div>
+        <div className="setting-row">
+          <div>
+            <strong>最小提醒间隔</strong>
+            <span>限制重复播报，单位为分钟</span>
+          </div>
+          <InputNumber
+            min={1}
+            max={1440}
+            value={interval}
+            onChange={(value) => setIntervalMinutes(value || 1)}
+          />
+        </div>
+        <Button type="primary" loading={saving} onClick={() => void save()}>
+          保存设置
+        </Button>
+      </section>
+      <Alert
+        type="info"
+        showIcon
+        title="AI服务的密钥和模型参数由研发人员维护"
+        description="运营平台只展示已批准的线上服务并管理业务策略，避免日常运维误改底层模型配置。"
+      />
+    </div>
+  );
 }
 
-function Alerts({ alerts }: { alerts: DeviceEvent[] }) {
-  return <div className="ops-stack"><section className="alert-summary"><div><WarningFilled /><span><strong>{alerts.length}</strong>开放告警</span></div><p>告警需要确认、指派和关闭，所有操作进入审计记录。</p></section><section className="ops-panel"><PanelTitle title="告警队列" />{alerts.length ? <Table rowKey="id" scroll={{ x: 900 }} dataSource={alerts} pagination={false} columns={[{ title: "发生时间", dataIndex: "createdAt", width: 190, render: formatDate }, { title: "设备", dataIndex: "deviceId" }, { title: "类型", dataIndex: "type", width: 120, render: (value: string) => <Tag color="red">{value}</Tag> }, { title: "详情", dataIndex: "payload", render: (value: Record<string, unknown>) => compactJson(value) }, { title: "状态", render: () => <Tag color="orange">待确认</Tag> }]} /> : <Empty description="当前没有开放告警" />}</section></div>;
-}
-
-function Releases({ products }: { products: ProductProfile[] }) {
-  return <div className="ops-stack"><Alert type="warning" showIcon title="运营平台只能发布研发中心已审批且完成验收的版本" description="当前DX-AI-01尚未通过低压IO、CI1302语音和真实负载Gate，发布操作保持禁用。" /><section className="ops-panel"><PanelTitle title="产品发布通道" /><div className="release-table">{products.map((product) => <article key={product.id}><div><span className="product-code">{product.model}</span><strong>{product.name}</strong><small>{product.controller} · {product.voiceProcessor} · {product.ioExpander}</small></div><div><span>当前阶段</span><Tag color="orange">研发验证</Tag></div><div><span>固件</span><strong>0.4.0-direct-control</strong></div><div><span>发布范围</span><strong>0台生产设备</strong></div><Button disabled>创建发布</Button></article>)}</div></section><section className="ops-panel"><PanelTitle title="发布策略" /><Descriptions bordered size="small" column={2}><Descriptions.Item label="灰度顺序">内部样机 → 1% → 10% → 全量</Descriptions.Item><Descriptions.Item label="失败阈值">命令失败率超过1%自动暂停</Descriptions.Item><Descriptions.Item label="回滚">保留上一稳定固件与语音资源包</Descriptions.Item><Descriptions.Item label="审批">研发负责人 + 运维负责人</Descriptions.Item></Descriptions></section></div>;
-}
-
-function AiOperations({ data }: { data: OperationsConsoleData }) {
-  const product = data.products[0];
-  return <div className="ops-stack"><section className="ops-metrics"><Metric label="生产模型" value="未发布" detail="研发模型不自动进入生产" /><Metric label="离线优先" value="启用" detail="CI1302固定命令" tone="good" /><Metric label="文本留存" value="90天" detail="不保存原始音频" /><Metric label="已启用能力" value={String(product?.capabilities.filter((item) => item.support === "ENABLED").length || 0)} detail="产品能力矩阵" /></section><section className="ops-panel"><PanelTitle title="生产AI链路" /><div className="ai-route"><RouteNode title="离线固定命令" detail="CI1302 → C3" status="零云调用" /><RouteNode title="在线简单规则" detail="ASR → 规则引擎" status="低成本" /><RouteNode title="售后问答" detail="ASR → 知识库" status="按需TTS" /><RouteNode title="复杂对话" detail="ASR → LLM → TTS" status="受预算控制" /></div></section><section className="ops-panel"><PanelTitle title="生产保护策略" /><div className="policy-grid"><Policy icon={<ThunderboltOutlined />} title="成本路由" detail="固定命令离线执行，简单语义优先规则匹配" /><Policy icon={<SafetyCertificateOutlined />} title="安全裁决" detail="云端只做预检，C3状态机拥有最终执行权" /><Policy icon={<HistoryOutlined />} title="数据留存" detail="只保存文本、意图、回执和费用，默认90天" /><Policy icon={<CustomerServiceOutlined />} title="降级处理" detail="模型不可用时保留离线命令与设备本地控制" /></div></section></div>;
-}
-
-function Audit({ logs, commands }: { logs: SystemLog[]; commands: DeviceCommandRecord[] }) {
-  const entries = [...logs.map((log) => ({ id: log.id, time: log.createdAt, type: log.type, actor: "system", target: log.summary, result: "RECORDED" })), ...commands.slice(0, 30).map((command) => ({ id: command.id, time: command.createdAt, type: "COMMAND", actor: "platform", target: `${command.deviceId} / ${command.intent}`, result: command.status }))].sort((a, b) => b.time.localeCompare(a.time));
-  return <div className="ops-stack"><section className="ops-panel"><PanelTitle title="操作审计" action={<Tag>只读</Tag>} /><Table rowKey="id" scroll={{ x: 850 }} dataSource={entries} pagination={{ pageSize: 15, showSizeChanger: false }} columns={[{ title: "时间", dataIndex: "time", width: 190, render: formatDate }, { title: "类型", dataIndex: "type", width: 120, render: (value: string) => <Tag>{value}</Tag> }, { title: "操作者", dataIndex: "actor", width: 130 }, { title: "对象/操作", dataIndex: "target" }, { title: "结果", dataIndex: "result", width: 130 }]} /></section></div>;
+function Records({ data }: { data: OperationsConsoleData }) {
+  const entries = buildAuditEntries(data.auditLogs, data.recentCommands);
+  return (
+    <div className="ops-stack">
+      <section className="ops-panel">
+        <PanelTitle
+          title="设备告警"
+          action={
+            <Tag color={data.alerts.length ? "red" : "green"}>
+              {data.alerts.length} 条
+            </Tag>
+          }
+        />
+        {data.alerts.length ? (
+          <Table
+            rowKey="id"
+            scroll={{ x: 860 }}
+            dataSource={data.alerts}
+            pagination={false}
+            columns={[
+              {
+                title: "发生时间",
+                dataIndex: "createdAt",
+                width: 190,
+                render: formatDate,
+              },
+              { title: "设备", dataIndex: "deviceId" },
+              {
+                title: "类型",
+                dataIndex: "type",
+                width: 120,
+                render: (value: string) => <Tag color="red">{value}</Tag>,
+              },
+              {
+                title: "详情",
+                dataIndex: "payload",
+                render: (value: Record<string, unknown>) => compactJson(value),
+              },
+            ]}
+          />
+        ) : (
+          <Empty description="当前没有设备告警" />
+        )}
+      </section>
+      <section className="ops-panel">
+        <PanelTitle title="操作与系统日志" action={<Tag>只读</Tag>} />
+        <Table
+          rowKey="id"
+          scroll={{ x: 850 }}
+          dataSource={entries}
+          pagination={{ pageSize: 15, showSizeChanger: false }}
+          columns={[
+            {
+              title: "时间",
+              dataIndex: "time",
+              width: 190,
+              render: formatDate,
+            },
+            {
+              title: "类型",
+              dataIndex: "type",
+              width: 120,
+              render: (value: string) => <Tag>{value}</Tag>,
+            },
+            { title: "来源", dataIndex: "actor", width: 130 },
+            { title: "对象/操作", dataIndex: "target" },
+            { title: "结果", dataIndex: "result", width: 130 },
+          ]}
+        />
+      </section>
+    </div>
+  );
 }
 
 function SystemPage({ data }: { data: OperationsConsoleData }) {
   const readiness = data.productionReadiness;
-  return <div className="ops-stack"><section className="ops-panel"><PanelTitle title="服务依赖" /><div className="infra-grid"><Infra title="API Gateway" value="ONLINE" good detail="Fastify本地开发服务" /><Infra title="MQTT Gateway" value={data.mqtt.connected ? "CONNECTED" : "DISCONNECTED"} good={data.mqtt.connected} detail={data.mqtt.brokerUrl} /><Infra title="设备IoT" value={readiness.mqtt} detail="计划迁移阿里云IoT" /><Infra title="业务数据库" value={readiness.database} detail="计划迁移RDS PostgreSQL" /><Infra title="缓存" value="NOT_CONFIGURED" detail="计划使用阿里云Redis" /><Infra title="员工认证" value={readiness.authentication} detail="账号密码 + 可选微信扫码" /></div></section><Alert type="error" showIcon title="生产上线门禁未满足" description="身份认证、设备密钥生命周期、RDS、Redis、阿里云IoT、告警通知、备份恢复和可观测性尚未完成。此页面如实展示当前状态，不将本地开发服务标记为生产可用。" /></div>;
+  return (
+    <div className="ops-stack">
+      <section className="ops-panel">
+        <PanelTitle title="运行依赖" />
+        <div className="infra-grid">
+          <Infra title="API服务" value="ONLINE" good detail="Fastify服务正常" />
+          <Infra
+            title="MQTT"
+            value={data.mqtt.connected ? "CONNECTED" : "DISCONNECTED"}
+            good={data.mqtt.connected}
+            detail={data.mqtt.brokerUrl}
+          />
+          <Infra
+            title="数据存储"
+            value={readiness.database}
+            detail="正式部署前迁移数据库"
+          />
+          <Infra
+            title="员工认证"
+            value={readiness.authentication}
+            detail="正式部署前启用账号密码"
+          />
+        </div>
+      </section>
+      <Alert
+        type="error"
+        showIcon
+        title="生产上线门禁尚未满足"
+        description="当前平台可用于本地联调。购买云服务器后，需要依次完成HTTPS、员工认证、数据库、设备独立身份、备份、监控和文本日志清理。"
+      />
+    </div>
+  );
 }
 
-function DeviceHealth({ device, events }: { device: DeviceProfile; events: DeviceEvent[] }) { const last = events.find((event) => event.deviceId === device.id); const network = last?.payload.network as Record<string, unknown> | undefined; return <div className="health-row"><span className={`device-dot ${device.status.toLowerCase()}`} /><div><strong>{device.name}</strong><code>{device.id}</code></div><span>{device.firmwareVersion || "固件未上报"}</span><span>{network?.rssi ? `${network.rssi} dBm` : device.protocol}</span><DeviceStatus status={device.status} /></div>; }
-function Todo({ icon, title, detail, level }: { icon: ReactNode; title: string; detail: string; level: string }) { return <div className="todo-row"><span className="todo-icon">{icon}</span><div><strong>{title}</strong><small>{detail}</small></div><Tag color={level === "阻塞上线" ? "red" : "orange"}>{level}</Tag></div>; }
-function CommandTable({ commands }: { commands: DeviceCommandRecord[] }) { return <Table rowKey="id" size="small" scroll={{ x: 680 }} pagination={false} dataSource={commands} columns={[{ title: "时间", dataIndex: "createdAt", width: 180, render: formatDate }, { title: "设备", dataIndex: "deviceId", ellipsis: true }, { title: "意图", dataIndex: "intent", width: 180 }, { title: "结果", dataIndex: "status", width: 110, render: (value: string) => <ResultTag value={value} /> }]} />; }
-function FlowStep({ number, title, note }: { number: string; title: string; note: string }) { return <div className="flow-step"><code>{number}</code><strong>{title}</strong><span>{note}</span></div>; }
-function FlowLine() { return <span className="flow-line" />; }
-function RouteNode({ title, detail, status }: { title: string; detail: string; status: string }) { return <article><span className="route-dot" /><strong>{title}</strong><p>{detail}</p><Tag>{status}</Tag></article>; }
-function Policy({ icon, title, detail }: { icon: ReactNode; title: string; detail: string }) { return <article><span>{icon}</span><div><strong>{title}</strong><p>{detail}</p></div></article>; }
-function Infra({ title, value, detail, good = false }: { title: string; value: string; detail: string; good?: boolean }) { return <article><span>{title}</span><strong className={good ? "good" : "pending"}>{value}</strong><p>{detail}</p></article>; }
-function Metric({ label, value, detail, tone }: { label: string; value: string; detail: string; tone?: "good" | "warn" }) { return <article className={`ops-metric ${tone || ""}`}><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>; }
-function PanelTitle({ title, action }: { title: string; action?: ReactNode }) { return <div className="panel-title"><h2>{title}</h2>{action}</div>; }
-function NavGroup({ label, children }: { label: string; children: ReactNode }) { return <div className="ops-nav-group"><span>{label}</span>{children}</div>; }
-function Nav({ active, icon, label, badge, onClick }: { active: boolean; icon: ReactNode; label: string; badge?: number; onClick: () => void }) { return <button className={active ? "active" : ""} onClick={onClick}>{icon}<span>{label}</span>{badge ? <i>{badge}</i> : null}</button>; }
-function DeviceStatus({ status }: { status: string }) { const map: Record<string, ["success" | "error" | "default", string]> = { ONLINE: ["success", "在线"], OFFLINE: ["default", "离线"], FAULT: ["error", "故障"] }; const item = map[status] || ["default", status]; return <Badge status={item[0]} text={item[1]} />; }
-function ResultTag({ value }: { value: string }) { const color = value === "APPLIED" ? "green" : value === "QUEUED" ? "blue" : value === "REJECTED" ? "orange" : "red"; return <Tag color={color}>{value}</Tag>; }
-function formatDate(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN", { hour12: false }); }
-function compactJson(value: Record<string, unknown>) { const text = JSON.stringify(value); return text.length > 90 ? `${text.slice(0, 90)}…` : text; }
-function readHash(): Section { const value = window.location.hash.replace("#", "") as Section; return value in sectionMeta ? value : "overview"; }
+function buildAuditEntries(logs: SystemLog[], commands: DeviceCommandRecord[]) {
+  return [
+    ...logs.map((log) => ({
+      id: log.id,
+      time: log.createdAt,
+      type: log.type,
+      actor: "system",
+      target: log.summary,
+      result: "RECORDED",
+    })),
+    ...commands.slice(0, 30).map((command) => ({
+      id: command.id,
+      time: command.createdAt,
+      type: "COMMAND",
+      actor: "platform",
+      target: `${command.deviceId} / ${command.intent}`,
+      result: command.status,
+    })),
+  ].sort((a, b) => b.time.localeCompare(a.time));
+}
+
+function DeviceHealth({
+  device,
+  events,
+}: {
+  device: DeviceProfile;
+  events: DeviceEvent[];
+}) {
+  const last = events.find((event) => event.deviceId === device.id);
+  const network = last?.payload.network as Record<string, unknown> | undefined;
+  return (
+    <div className="health-row">
+      <span className={`device-dot ${device.status.toLowerCase()}`} />
+      <div>
+        <strong>{device.name}</strong>
+        <code>{device.id}</code>
+      </div>
+      <span>{device.firmwareVersion || "固件未上报"}</span>
+      <span>{network?.rssi ? `${network.rssi} dBm` : device.protocol}</span>
+      <DeviceStatus status={device.status} />
+    </div>
+  );
+}
+function CommandTable({ commands }: { commands: DeviceCommandRecord[] }) {
+  return (
+    <Table
+      rowKey="id"
+      size="small"
+      scroll={{ x: 680 }}
+      pagination={false}
+      locale={{ emptyText: "暂无设备命令" }}
+      dataSource={commands}
+      columns={[
+        {
+          title: "时间",
+          dataIndex: "createdAt",
+          width: 180,
+          render: formatDate,
+        },
+        { title: "设备", dataIndex: "deviceId", ellipsis: true },
+        { title: "意图", dataIndex: "intent", width: 180 },
+        {
+          title: "结果",
+          dataIndex: "status",
+          width: 110,
+          render: (value: string) => <ResultTag value={value} />,
+        },
+      ]}
+    />
+  );
+}
+function SummaryRow({
+  label,
+  value,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  onClick: () => void;
+}) {
+  return (
+    <button onClick={onClick}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </button>
+  );
+}
+function Infra({
+  title,
+  value,
+  detail,
+  good = false,
+}: {
+  title: string;
+  value: string;
+  detail: string;
+  good?: boolean;
+}) {
+  return (
+    <article>
+      <span>{title}</span>
+      <strong className={good ? "good" : "pending"}>{value}</strong>
+      <p>{detail}</p>
+    </article>
+  );
+}
+function Metric({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "good" | "warn";
+}) {
+  return (
+    <article className={`ops-metric ${tone || ""}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </article>
+  );
+}
+function PanelTitle({ title, action }: { title: string; action?: ReactNode }) {
+  return (
+    <div className="panel-title">
+      <h2>{title}</h2>
+      {action}
+    </div>
+  );
+}
+function NavGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="ops-nav-group">
+      <span>{label}</span>
+      {children}
+    </div>
+  );
+}
+function Nav({
+  active,
+  icon,
+  label,
+  badge,
+  onClick,
+}: {
+  active: boolean;
+  icon: ReactNode;
+  label: string;
+  badge?: number;
+  onClick: () => void;
+}) {
+  return (
+    <button className={active ? "active" : ""} onClick={onClick}>
+      {icon}
+      <span>{label}</span>
+      {badge ? <i>{badge}</i> : null}
+    </button>
+  );
+}
+function DeviceStatus({ status }: { status: string }) {
+  const map: Record<string, ["success" | "error" | "default", string]> = {
+    ONLINE: ["success", "在线"],
+    OFFLINE: ["default", "离线"],
+    FAULT: ["error", "故障"],
+  };
+  const item = map[status] || ["default", status];
+  return <Badge status={item[0]} text={item[1]} />;
+}
+function ResultTag({ value }: { value: string }) {
+  const color =
+    value === "APPLIED"
+      ? "green"
+      : value === "QUEUED"
+        ? "blue"
+        : value === "REJECTED"
+          ? "orange"
+          : "red";
+  return <Tag color={color}>{value}</Tag>;
+}
+function formatDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString("zh-CN", { hour12: false });
+}
+function compactJson(value: Record<string, unknown>) {
+  const content = JSON.stringify(value);
+  return content.length > 110 ? `${content.slice(0, 110)}...` : content;
+}
+function readHash(): Section {
+  const value = window.location.hash.replace("#", "") as Section;
+  return value in sectionMeta ? value : "overview";
+}

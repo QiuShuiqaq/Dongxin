@@ -75,9 +75,13 @@ export async function registerDeviceAccess(requestBody: unknown, transport: 'HTT
     name: existing?.name ?? `东信浴霸 ${body.deviceId}`,
     model: body.model,
     firmwareVersion: body.firmwareVersion ?? null,
+    capabilities: body.capabilities,
     protocol: transport,
     status: 'ONLINE',
-    notes: `protocol=${body.protocolVersion}; capabilities=${Object.keys(body.capabilities).join(',')}`,
+    notes: `protocol=${body.protocolVersion}; capabilities=${Object.entries(body.capabilities)
+      .filter(([, enabled]) => enabled)
+      .map(([capability]) => capability)
+      .join(',')}`,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now
   };

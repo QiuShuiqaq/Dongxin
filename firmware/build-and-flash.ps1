@@ -104,7 +104,7 @@ if ($Action -eq "menu") {
     Write-Host "  6 = fullclean"
     Write-Host "  7 = set-target esp32s3   (switch the default build directory)"
     Write-Host "  8 = build esp32s3 in isolated build-s3-verify2 directory"
-    Write-Host "  9 = build Lichuang C3 audio board (silent ASR image)"
+    Write-Host "  9 = build Lichuang C3 audio board"
     Write-Host " 10 = build + flash + monitor Lichuang board on COM5"
     Write-Host " 11 = flash Lichuang board on COM5"
     Write-Host " 12 = monitor Lichuang board on COM5"
@@ -195,7 +195,7 @@ elseif ($choice -eq "9") {
 elseif ($choice -eq "10") {
     Invoke-Idf @("-B", "build-lichuang", "-D", "SDKCONFIG=sdkconfig.lichuang", "build")
     Invoke-Idf @("-B", "build-lichuang", "-p", $ComPort, "flash")
-    Write-Host "Monitoring silent ASR firmware, press Ctrl+] to exit" -ForegroundColor Yellow
+    Write-Host "Monitoring Lichuang audio firmware, press Ctrl+] to exit" -ForegroundColor Yellow
     Invoke-Idf @("-B", "build-lichuang", "-p", $ComPort, "monitor")
 }
 elseif ($choice -eq "14") {
@@ -206,7 +206,7 @@ elseif ($choice -eq "11") {
     Invoke-Idf @("-B", "build-lichuang", "-p", $ComPort, "flash")
 }
 elseif ($choice -eq "12") {
-    Write-Host "Monitoring silent ASR firmware, press Ctrl+] to exit" -ForegroundColor Yellow
+    Write-Host "Monitoring Lichuang audio firmware, press Ctrl+] to exit" -ForegroundColor Yellow
     Invoke-Idf @("-B", "build-lichuang", "-p", $ComPort, "monitor")
 }
 else {

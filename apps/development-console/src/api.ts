@@ -118,8 +118,81 @@ export interface DeviceAudioTestResult {
   costCny: number;
   durationMs: number;
   byteLength: number;
+  volumePercent: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export type BoardLabAction = "snapshot" | "display_pattern" | "display_power";
+export type BoardLabRequestStatus = "PENDING" | "COMPLETED" | "FAILED";
+
+export interface BoardLabSnapshot {
+  system: {
+    uptimeMs: number;
+    freeHeapBytes: number;
+    minimumFreeHeapBytes: number;
+    firmwareVersion: string;
+  };
+  network: { ip?: string; rssi?: number };
+  components: Array<{
+    id: string;
+    name: string;
+    address: string;
+    present: boolean;
+  }>;
+  environment: {
+    available: boolean;
+    temperatureC?: number;
+    humidityPercent?: number;
+  };
+  motion: {
+    available: boolean;
+    accelX?: number;
+    accelY?: number;
+    accelZ?: number;
+    gyroX?: number;
+    gyroY?: number;
+    gyroZ?: number;
+    roll?: number;
+    pitch?: number;
+  };
+  compass: {
+    available: boolean;
+    x?: number;
+    y?: number;
+    z?: number;
+    heading?: number;
+  };
+  touch: { available: boolean; pressed?: boolean; points?: number; x?: number; y?: number };
+  button: { pressed: boolean };
+  display: { available: boolean; on: boolean; brightnessPercent: number; pattern: string };
+}
+
+export interface BoardLabRequestRecord {
+  requestId: string;
+  deviceId: string;
+  action: BoardLabAction;
+  params: Record<string, unknown>;
+  status: BoardLabRequestStatus;
+  message: string;
+  result: BoardLabSnapshot | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BoardLabDeviceState {
+  deviceId: string;
+  online: boolean;
+  supported: boolean;
+  capabilities: {
+    displayControl: boolean;
+    sensorTelemetry: boolean;
+    touchTelemetry: boolean;
+    audioPlayback: boolean;
+    bleExperiment: false;
+    destructiveFlashOperations: false;
+  };
+  latest: BoardLabRequestRecord | null;
 }
 
 export interface AiServiceConfiguration {
@@ -237,6 +310,7 @@ export async function runTtsModuleTest(input: {
   deviceId: string;
   text: string;
   target: "DEVICE";
+  volumePercent: number;
 }): Promise<DeviceAudioTestResult>;
 export async function runTtsModuleTest(input: {
   deviceId?: string;
@@ -258,6 +332,25 @@ export async function stopDeviceAudioTest(testId: string): Promise<DeviceAudioTe
     method: "POST",
     body: JSON.stringify({}),
   });
+}
+
+export async function getBoardLabDeviceState(deviceId: string): Promise<BoardLabDeviceState> {
+  return request(`/api/development/board-lab/devices/${encodeURIComponent(deviceId)}`);
+}
+
+export async function startBoardLabAction(
+  deviceId: string,
+  action: BoardLabAction,
+  params: Record<string, unknown> = {},
+): Promise<BoardLabRequestRecord> {
+  return request(`/api/development/board-lab/devices/${encodeURIComponent(deviceId)}/actions`, {
+    method: "POST",
+    body: JSON.stringify({ action, params }),
+  });
+}
+
+export async function getBoardLabRequest(requestId: string): Promise<BoardLabRequestRecord> {
+  return request(`/api/development/board-lab/requests/${encodeURIComponent(requestId)}`);
 }
 
 export async function getAiServiceConfiguration(): Promise<AiServiceConfiguration> {

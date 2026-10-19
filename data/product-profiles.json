@@ -1,16 +1,16 @@
 [
   {
     "id": "dx-ai-bath-c3-ci1302-v1",
-    "name": "东信 AI 浴霸 C3 + CI1302",
+    "name": "东信 AI 浴霸 STM32 + C3 + CI1302",
     "model": "DX-AI-01",
     "deviceModelAliases": [
       "DX-AI-BATH-C3-SUPERMINI",
       "DX-AI-BATH-C3-LICHUANG-AUDIO"
     ],
     "status": "ACTIVE",
-    "controller": "ESP32_C3",
+    "controller": "STM32_WITH_ESP32_C3_GATEWAY",
     "voiceProcessor": "CI1302",
-    "ioExpander": "3 x PCF8574",
+    "ioExpander": "现有 STM32 主控 I/O；PCF8574 仅保留为后续降本预研",
     "ioExpansion": {
       "bus": "I2C",
       "frequencyHz": 100000,
@@ -46,8 +46,8 @@
         "key": "LIGHT",
         "label": "照明",
         "support": "ENABLED",
-        "interface": "PCF8574 U1 输出",
-        "notes": "C3 统一控制，功率驱动由东信设计"
+        "interface": "STM32 主控现有输出",
+        "notes": "C3通过UART下发语义命令，STM32负责实际执行"
       },
       {
         "key": "NIGHT_LIGHT",
@@ -60,92 +60,92 @@
         "key": "FAN",
         "label": "吹风",
         "support": "ENABLED",
-        "interface": "PCF8574 U1 输出",
-        "notes": "取暖互锁和关断散热由 C3 状态机管理"
+        "interface": "STM32 主控现有输出",
+        "notes": "互锁和关断散热沿用现有STM32稳定逻辑"
       },
       {
         "key": "VENTILATION",
         "label": "换气",
         "support": "ENABLED",
-        "interface": "PCF8574 U1 输出",
-        "notes": "与吹风的电机绕组互锁需按样板确认"
+        "interface": "STM32 主控现有输出",
+        "notes": "沿用现有样机风路互锁"
       },
       {
         "key": "HEAT_WEAK",
         "label": "弱暖",
         "support": "ENABLED",
-        "interface": "PCF8574 U1 输出",
-        "notes": "软件只输出低压控制信号"
+        "interface": "STM32 主控现有输出",
+        "notes": "C3不直接操作取暖负载"
       },
       {
         "key": "HEAT_STRONG",
         "label": "强暖",
         "support": "ENABLED",
-        "interface": "PCF8574 U1 输出",
-        "notes": "必须具备硬件温控器和保险丝保护"
+        "interface": "STM32 主控现有输出",
+        "notes": "C3不直接操作取暖负载，保留现有硬件保护"
       },
       {
         "key": "SWING",
         "label": "摆风",
         "support": "ENABLED",
-        "interface": "PCF8574 U2 + 电机驱动",
-        "notes": "电机型号与归零方式由样板冻结"
+        "interface": "STM32 主控现有输出",
+        "notes": "沿用现有样机电机控制"
       },
       {
         "key": "DRY",
         "label": "干燥",
         "support": "ENABLED",
-        "interface": "C3 软件模式",
-        "notes": "默认最大 60 分钟，节拍需热测试确认"
+        "interface": "服务端意图 + STM32执行",
+        "notes": "最终节拍以现有样机能力和联调结果为准"
       },
       {
         "key": "DEFOG",
         "label": "除雾",
         "support": "OPTIONAL",
-        "interface": "C3 软件模式",
+        "interface": "服务端意图 + STM32执行",
         "notes": "产品需求尚未冻结"
       },
       {
         "key": "BATH_MODE",
         "label": "沐浴模式",
         "support": "ENABLED",
-        "interface": "C3 软件模式",
-        "notes": "由安全状态机组合风机与取暖输出"
+        "interface": "服务端组合意图 + STM32执行",
+        "notes": "不在C3重复实现底层负载状态机"
       },
       {
         "key": "CONSTANT_TEMPERATURE",
         "label": "恒温模式",
         "support": "ENABLED",
-        "interface": "C3 软件闭环",
-        "notes": "参数必须由样板温升测试标定"
+        "interface": "STM32现有温控能力",
+        "notes": "云端只理解用户意图，不承担实时温控闭环"
       },
       {
         "key": "TARGET_TEMPERATURE",
         "label": "目标温度",
         "support": "ENABLED",
-        "interface": "C3 软件参数",
+        "interface": "UART协议参数",
         "notes": "30 至 45 摄氏度，默认 40 摄氏度"
       },
       {
         "key": "NTC_TEMPERATURE",
         "label": "NTC 温度采集",
         "support": "ENABLED",
-        "interface": "C3 ADC",
-        "notes": "NTC 型号、B 值和安装位置由东信样板冻结"
+        "interface": "STM32状态上报",
+        "notes": "沿用样机温度采集并通过UART上报"
       },
       {
         "key": "RADAR_OCCUPANCY",
         "label": "雷达/人感",
         "support": "ENABLED",
-        "interface": "PCF8574 U3 输入或 UART 预留",
-        "notes": "优先数字存在信号接PCF输入，具体模组待定"
+        "interface": "STM32或C3事件输入，接口待样板确认",
+        "notes": "仅为合同主动沟通场景保留"
       },
       {
         "key": "BLE_LOCAL_CONTROLLERS",
         "label": "BLE 墙面板与遥控器",
         "support": "ENABLED",
-        "interface": "ESP32-C3 内置 BLE",
-        "notes": "默认绑定一个墙面触控板和一个手持遥控器，命令必须回执并同步真实状态"
+        "interface": "现有STM32本地控制接口",
+        "notes": "沿用样机墙面触控板和遥控器，不在本阶段重做协议"
       },
       {
         "key": "DISPLAY",

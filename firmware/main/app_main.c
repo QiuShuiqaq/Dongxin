@@ -1,16 +1,19 @@
 /*
- * 东信高端智能浴霸（直流款·AI联网版）
+ * 东信智能浴霸 AI 联网模块
  * ESP32-C3/S3 staged firmware
  *
- * 系统链路：
- *   BLE/CI1302/cloud -> ESP32 command queue -> safety controller -> local HAL
+ * 当前系统链路：
+ *   online audio / cloud -> ESP32-C3 -> STM32 protocol adapter -> existing controller
  *
  * 本固件职责：
  *   1. WiFi连接与配网
- *   2. MQTT device messaging and synchronous online voice transport
- *   3. C3 direct load control through PCF8574/GPIO/ADC
- *   4. CI1302 offline voice and I2S online audio
- *   5. 设备状态上报与控制指令下发
+ *   2. MQTT设备消息和在线语音传输
+ *   3. STM32状态接收和后续双向协议适配
+ *   4. 立创板在线ASR/LLM/TTS验证
+ *   5. 后续接入CI1302唤醒和断网固定命令
+ *
+ * direct_control_hal/PCF8574仅保留为研发模拟和降本预研资产，
+ * 不属于当前样机控制主链路。
  */
 
 #include <stdio.h>
@@ -24,12 +27,13 @@
 #include "app_config.h"
 #include "board_profile.h"
 #include "board_support.h"
+#include "board_lab.h"
 #include "cloud_agent.h"
 #include "command_queue.h"
 #include "device_controller.h"
 #include "mqtt_agent.h"
+#include "sample_uart_monitor.h"
 #include "device_state.h"
-#include "uart_bridge.h"
 #include "voice_engine.h"
 #include "wifi_manager.h"
 
@@ -45,9 +49,6 @@ extern void wifi_manager_init(void);
 // 云端通信（HTTPS客户端 + JSON解析 + 设备注册/心跳/状态上报）
 extern void cloud_agent_init(void);
 
-// 旧MCU UART兼容测试资产（32字节固定帧协议）
-extern void uart_bridge_init(void);
-
 // 语音交互（离线语音识别 + 联网AI对话 + TTS播报）
 extern void voice_engine_init(void);
 
@@ -62,6 +63,8 @@ void app_main(void)
 {
     /* Hold the Lichuang power amplifier off before slower subsystems start. */
     voice_engine_preinit();
+    /* Hold the active-low LCD backlight off until an explicit board-lab command. */
+    board_lab_preinit();
 
     const dx_board_profile_t *board = dx_board_profile_get();
 
@@ -92,15 +95,17 @@ void app_main(void)
     device_state_init();
     ESP_LOGI(TAG, "[3/8] 设备状态管理初始化完成");
 
-    // 4. C3直控内核与统一命令队列
+    // 4. 研发模拟控制器与统一命令队列（不驱动当前STM32样机）
     ESP_ERROR_CHECK(device_controller_init());
     ESP_ERROR_CHECK(command_queue_init());
-    ESP_LOGI(TAG, "[4/8] C3直控内核初始化完成");
+    ESP_LOGI(TAG, "[4/9] C3命令队列初始化完成（当前不控制STM32负载）");
 
-    // 5. 旧MCU UART仅保留兼容和协议回归
-    ESP_ERROR_CHECK(uart_bridge_run_self_test());
-    uart_bridge_init();
-    ESP_LOGI(TAG, "[5/8] 旧MCU UART兼容层初始化完成");
+    // 5. 现有STM32样机只读监听；TX未配置，禁止发送
+    ret = sample_uart_monitor_init();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "东信样机被动串口监听未启动: %s", esp_err_to_name(ret));
+    }
+    ESP_LOGI(TAG, "[5/9] STM32串口只读监听初始化完成");
 
     // 6. WiFi连接初始化
 #if DX_ENABLE_WIFI
@@ -108,16 +113,20 @@ void app_main(void)
 #else
     ESP_LOGI(TAG, "[5/6] WiFi管理已按配置关闭");
 #endif
-    ESP_LOGI(TAG, "[6/8] WiFi管理初始化完成");
+    ESP_LOGI(TAG, "[6/9] WiFi管理初始化完成");
 
     // 7. 云端通信初始化
     cloud_agent_init();
     mqtt_agent_init();
-    ESP_LOGI(TAG, "[7/8] 云端通信代理初始化完成");
+    ESP_LOGI(TAG, "[7/9] 云端通信代理初始化完成");
 
-    // 8. 语音引擎初始化（CI1302 SDK映射确认后实现）
+    // 8. 当前开发板在线语音验证；CI1302在后续硬件阶段接入
     voice_engine_init();
-    ESP_LOGI(TAG, "[8/8] 语音引擎初始化完成");
+    ESP_LOGI(TAG, "[8/9] 在线语音验证引擎初始化完成");
+
+    // 9. 开发板外设；所有输出默认关闭，仅响应显式研发指令
+    board_lab_init();
+    ESP_LOGI(TAG, "[9/9] 开发板外设初始化完成");
 
     ESP_LOGI(TAG, "========================================");
     ESP_LOGI(TAG, "  系统启动完成，进入主循环");
