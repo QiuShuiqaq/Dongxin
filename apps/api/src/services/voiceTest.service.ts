@@ -17,12 +17,38 @@ import {
   getMqttGatewayStatus,
   publishVoiceTestControl,
 } from "./mqttGateway.service.js";
+import {
+  addAsrDatasetItem,
+  listAsrDatasets,
+} from "./aiTesting.service.js";
 
 const RECORD_SECONDS = 6;
-const StartVoiceTestSchema = z.object({
-  deviceId: z.string().min(1),
-  mode: z.enum(["FULL_PIPELINE", "ASR_ONLY"]).default("FULL_PIPELINE"),
-});
+const StartVoiceTestSchema = z
+  .object({
+    deviceId: z.string().min(1),
+    mode: z
+      .enum(["FULL_PIPELINE", "ASR_ONLY", "CI_WAKE_ONLINE_FALLBACK"])
+      .default("FULL_PIPELINE"),
+    asrDatasetId: z.string().uuid().optional(),
+    expectedText: z.string().trim().min(1).max(500).optional(),
+  })
+  .superRefine((value, context) => {
+    const hasDataset = Boolean(value.asrDatasetId);
+    const hasExpectedText = Boolean(value.expectedText);
+    if (hasDataset !== hasExpectedText) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "归档实板录音时必须同时提供ASR测试集和期望文字",
+      });
+    }
+    if (hasDataset && value.mode !== "ASR_ONLY") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["mode"],
+        message: "实板录音归档只允许使用ASR独立测试模式",
+      });
+    }
+  });
 const VoiceTestDeviceStatusSchema = z.object({
   deviceId: z.string().min(1),
   testSessionId: z.string().uuid(),
@@ -55,6 +81,13 @@ export async function startVoiceTest(requestBody: unknown): Promise<VoiceTestSes
   if (!getMqttGatewayStatus().connected) {
     throw new ApiError(503, "MQTT_GATEWAY_OFFLINE", "MQTT 网关未连接");
   }
+  if (body.asrDatasetId) {
+    const datasetExists = (await listAsrDatasets())
+      .some((dataset) => dataset.id === body.asrDatasetId);
+    if (!datasetExists) {
+      throw new ApiError(404, "ASR_DATASET_NOT_FOUND", "ASR 测试集不存在");
+    }
+  }
 
   const current = (await getVoiceTestSessions(body.deviceId))
     .find((session) => !terminalStatuses.has(session.status));
@@ -66,6 +99,8 @@ export async function startVoiceTest(requestBody: unknown): Promise<VoiceTestSes
     deviceId: body.deviceId,
     recordSeconds: RECORD_SECONDS,
     mode: body.mode,
+    asrDatasetId: body.asrDatasetId ?? null,
+    expectedText: body.expectedText ?? null,
   });
   try {
     await publishVoiceTestControl({
@@ -77,7 +112,10 @@ export async function startVoiceTest(requestBody: unknown): Promise<VoiceTestSes
     });
     return (await patchVoiceTestSession(session.id, {
       status: "COMMAND_SENT",
-      message: "开始命令已发送，等待设备打开麦克风",
+      message:
+        body.mode === "CI_WAKE_ONLINE_FALLBACK"
+          ? "已模拟CI唤醒事件，等待设备采集后续命令"
+          : "开始命令已发送，等待设备打开麦克风",
     })) as VoiceTestSession;
   } catch (error) {
     await patchVoiceTestSession(session.id, {
@@ -87,6 +125,34 @@ export async function startVoiceTest(requestBody: unknown): Promise<VoiceTestSes
     });
     throw new ApiError(503, "VOICE_TEST_DELIVERY_FAILED", "语音测试命令发送失败");
   }
+}
+
+export async function archiveVoiceTestPcm(
+  sessionId: string,
+  wav: Buffer,
+): Promise<void> {
+  const session = await requireVoiceTestSession(sessionId);
+  if (!session.asrDatasetId || !session.expectedText) return;
+  if (session.mode !== "ASR_ONLY") {
+    throw new ApiError(409, "VOICE_CAPTURE_MODE_INVALID", "只有ASR独立测试可以归档录音");
+  }
+  if (session.capturedDatasetItemId) return;
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const dataset = await addAsrDatasetItem(session.asrDatasetId, {
+    fileName: `c3-board-${timestamp}.wav`,
+    expectedText: session.expectedText,
+    mimeType: "audio/wav",
+    audioBase64: wav.toString("base64"),
+  });
+  const item = dataset.items[dataset.items.length - 1];
+  if (!item) {
+    throw new Error("ASR录音归档后未返回数据项");
+  }
+  await patchVoiceTestSession(session.id, {
+    capturedDatasetItemId: item.id,
+    message: "实板录音已归档，正在执行ASR识别",
+  });
 }
 
 export async function stopVoiceTest(sessionId: string): Promise<VoiceTestSession> {

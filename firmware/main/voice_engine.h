@@ -7,7 +7,11 @@
 
 void voice_engine_preinit(void);
 void voice_engine_init(void);
-esp_err_t voice_engine_start_test(const char *test_session_id, bool asr_only);
+esp_err_t voice_engine_start_test(
+    const char *test_session_id,
+    bool asr_only,
+    bool ci_wake_online_fallback
+);
 esp_err_t voice_engine_stop_test(const char *test_session_id);
 esp_err_t voice_engine_start_audio_test(
     const char *test_id,

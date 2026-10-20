@@ -78,14 +78,57 @@ async function verifyDevelopmentDesktop() {
   }
 
   await page.locator(".nav-group button", { hasText: "样机联调" }).click();
-  await page.getByText("只读，发送已锁定", { exact: true }).waitFor();
+  await page
+    .getByRole("heading", { name: "STM32 实时协议监听", exact: true })
+    .waitFor();
+  const consoleResponse = await page.request.get(
+    "http://127.0.0.1:3077/api/development/console",
+  );
+  const consoleData = await consoleResponse.json();
+  const sampleDevice = consoleData.devices.find((device) =>
+    device.model.includes("LICHUANG-AUDIO"),
+  );
+  const capabilities = sampleDevice?.capabilities || {};
   const enabledCommands = await page
     .locator(".command-group button:enabled")
     .count();
-  if (enabledCommands !== 0) {
+  if (!capabilities.stm32UartControl && enabledCommands !== 0) {
     failures.push(
-      `研发中心/样机联调：只读模式仍有${enabledCommands}个控制按钮可用`,
+      `研发中心/样机联调：只读固件仍有${enabledCommands}个控制按钮可用`,
     );
+  }
+  await assertCommandGate(page, "照明", capabilities.stm32LightControl);
+  await assertCommandGate(page, "风路", capabilities.stm32AirControl);
+  await assertDangerousCommandGate(
+    page,
+    ["弱暖", "强暖"],
+    capabilities.stm32HeaterControl,
+  );
+  const constantTemperatureEnabled = await page
+    .locator(".command-group button", { hasText: "恒温（待协议支持）" })
+    .isEnabled();
+  if (constantTemperatureEnabled) {
+    failures.push("研发中心/样机联调：样机协议不支持恒温，但按钮处于可用状态");
+  }
+  if (capabilities.stm32HeaterControl) {
+    const commandsBefore = await page.request.get(
+      `http://127.0.0.1:3077/api/devices/${sampleDevice.id}/commands`,
+    );
+    const commandCountBefore = (await commandsBefore.json()).length;
+    await page
+      .locator(".command-group button", { hasText: "弱暖" })
+      .click();
+    await page
+      .locator(".ant-modal-confirm-title", { hasText: "确认执行“弱暖”" })
+      .waitFor();
+    await page.locator(".ant-modal-confirm-btns .ant-btn-default").click();
+    const commandsAfter = await page.request.get(
+      `http://127.0.0.1:3077/api/devices/${sampleDevice.id}/commands`,
+    );
+    const commandCountAfter = (await commandsAfter.json()).length;
+    if (commandCountAfter !== commandCountBefore) {
+      failures.push("研发中心/样机联调：取消取暖确认后仍产生了设备命令");
+    }
   }
   await page.screenshot({
     path: ".artifacts/development-sample-link-desktop.png",
@@ -119,6 +162,32 @@ async function verifyDevelopmentDesktop() {
     fullPage: true,
   });
   await context.close();
+}
+
+async function assertCommandGate(page, groupName, expectedEnabled) {
+  const group = page.locator(".command-group", {
+    has: page.locator(":scope > span", { hasText: groupName }),
+  });
+  const enabled = await group.locator("button:enabled").count();
+  const total = await group.locator("button").count();
+  if ((expectedEnabled && enabled !== total) || (!expectedEnabled && enabled !== 0)) {
+    failures.push(
+      `研发中心/样机联调：${groupName}门禁不符合设备能力（${enabled}/${total}可用）`,
+    );
+  }
+}
+
+async function assertDangerousCommandGate(page, labels, expectedEnabled) {
+  for (const label of labels) {
+    const enabled = await page
+      .locator(".command-group button", { hasText: label })
+      .isEnabled();
+    if (enabled !== Boolean(expectedEnabled)) {
+      failures.push(
+        `研发中心/样机联调：危险动作“${label}”门禁与设备能力不一致`,
+      );
+    }
+  }
 }
 
 async function verifyOperationsDesktop() {

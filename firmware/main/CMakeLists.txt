@@ -14,6 +14,8 @@ idf_component_register(
         "direct_control_hal.c"
         "pcf8574.c"
         "uart_bridge.c"
+        "stm32_protocol.c"
+        "stm32_protocol_self_test.c"
         "sample_uart_monitor.c"
         "voice_engine.c"
         "device_state.c"

@@ -346,7 +346,9 @@ export async function simulateCi1302Event(
             ...response,
             route: "LOCAL_CONTROL",
             matchedCommand: command,
-            reason: "CI1302 仅上报语义，控制由 C3 统一状态机执行",
+            reason: input.applyToDevice
+              ? "CI1302仅上报语义，控制进入统一安全与执行链路"
+              : "语义ID映射检查通过；本次为接口模拟，未向设备下发动作",
             feedback: command.feedbackTone,
             deviceState: input.applyToDevice
               ? executeDeviceCommand(command.intent, command.slots)

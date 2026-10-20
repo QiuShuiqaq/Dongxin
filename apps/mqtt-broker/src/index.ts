@@ -1,19 +1,29 @@
 import 'dotenv/config';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:net';
 import Aedes, { type Client } from 'aedes';
 
 const host = process.env.MQTT_HOST || '0.0.0.0';
 const port = Number(process.env.MQTT_PORT || 1883);
+const brokerMode = process.env.MQTT_BROKER_MODE === 'production' ? 'production' : 'development';
 const gatewayUsername = process.env.MQTT_GATEWAY_USERNAME || 'gateway';
 const gatewayPassword = process.env.MQTT_GATEWAY_PASSWORD || 'dongxin-local-gateway';
 const deviceCredentials = readDeviceCredentials();
+assertBrokerConfiguration();
 const broker = new Aedes();
 
 broker.authenticate = (client, usernameBuffer, passwordBuffer, done) => {
   const username = usernameBuffer?.toString() || '';
   const password = passwordBuffer?.toString() || '';
-  const isGateway = username === gatewayUsername && password === gatewayPassword;
-  const isDevice = deviceCredentials.get(username) === password && client.id === username;
+  const isGateway =
+    client.id === 'dongxin-api-gateway' &&
+    secureTextEqual(username, gatewayUsername) &&
+    secureTextEqual(password, gatewayPassword);
+  const expectedDeviceSecret = deviceCredentials.get(username);
+  const isDevice =
+    client.id === username &&
+    expectedDeviceSecret !== undefined &&
+    secureTextEqual(password, expectedDeviceSecret);
   done(null, isGateway || isDevice);
 };
 
@@ -48,6 +58,7 @@ broker.on('clientError', (client, error) => {
 const tcpServer = createServer(broker.handle);
 tcpServer.listen(port, host, () => {
   console.log(`[mqtt] Dongxin local broker listening at mqtt://${host}:${port}`);
+  console.log(`[mqtt] broker mode: ${brokerMode}`);
   console.log(`[mqtt] provisioned development devices: ${[...deviceCredentials.keys()].join(', ')}`);
 });
 
@@ -77,4 +88,32 @@ function readDeviceCredentials(): Map<string, string> {
   } catch (error) {
     throw new Error(`Invalid MQTT_DEVICE_CREDENTIALS JSON: ${String(error)}`);
   }
+}
+
+function assertBrokerConfiguration(): void {
+  if (brokerMode !== 'production') return;
+  if (!process.env.MQTT_DEVICE_CREDENTIALS) {
+    throw new Error('Production broker requires explicit MQTT_DEVICE_CREDENTIALS');
+  }
+  if (
+    !process.env.MQTT_GATEWAY_USERNAME ||
+    !process.env.MQTT_GATEWAY_PASSWORD ||
+    gatewayPassword === 'dongxin-local-gateway'
+  ) {
+    throw new Error('Production broker requires non-default gateway credentials');
+  }
+  if (deviceCredentials.size === 0) {
+    throw new Error('Production broker has no provisioned device credentials');
+  }
+  for (const [deviceId, secret] of deviceCredentials) {
+    if (deviceId.length > 128 || secret.length < 20) {
+      throw new Error(`Invalid production credential for device ${deviceId}`);
+    }
+  }
+}
+
+function secureTextEqual(actual: string, expected: string): boolean {
+  const actualDigest = createHash('sha256').update(actual).digest();
+  const expectedDigest = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(actualDigest, expectedDigest);
 }

@@ -170,6 +170,12 @@ export async function addTestCaseToSet(
     category: body.category,
     inputText: body.inputText,
     expectedIntent: body.expectedIntent,
+    expectedResultType: body.expectedResultType ?? null,
+    expectedSlots: body.expectedSlots ?? {},
+    expectedSafetyDecision: body.expectedSafetyDecision ?? null,
+    requiredKeywords: body.requiredKeywords ?? [],
+    forbiddenKeywords: body.forbiddenKeywords ?? [],
+    allowDeviceAction: body.allowDeviceAction ?? null,
     riskLevel: body.riskLevel,
     notes: body.notes,
   });
@@ -219,6 +225,21 @@ export async function updateTestCaseInSet(
       body.expectedIntent === undefined
         ? currentCase.expectedIntent
         : body.expectedIntent,
+    expectedResultType:
+      body.expectedResultType === undefined
+        ? currentCase.expectedResultType
+        : body.expectedResultType,
+    expectedSlots: body.expectedSlots ?? currentCase.expectedSlots,
+    expectedSafetyDecision:
+      body.expectedSafetyDecision === undefined
+        ? currentCase.expectedSafetyDecision
+        : body.expectedSafetyDecision,
+    requiredKeywords: body.requiredKeywords ?? currentCase.requiredKeywords,
+    forbiddenKeywords: body.forbiddenKeywords ?? currentCase.forbiddenKeywords,
+    allowDeviceAction:
+      body.allowDeviceAction === undefined
+        ? currentCase.allowDeviceAction
+        : body.allowDeviceAction,
     riskLevel: body.riskLevel ?? currentCase.riskLevel,
     notes: body.notes === undefined ? currentCase.notes : body.notes,
   });
@@ -385,6 +406,12 @@ function normalizeTestCase(testCase: TestCase): TestCase {
     category: testCase.category.trim(),
     inputText: testCase.inputText.trim(),
     expectedIntent: testCase.expectedIntent,
+    expectedResultType: testCase.expectedResultType,
+    expectedSlots: testCase.expectedSlots,
+    expectedSafetyDecision: testCase.expectedSafetyDecision,
+    requiredKeywords: testCase.requiredKeywords.map((item) => item.trim()).filter(Boolean),
+    forbiddenKeywords: testCase.forbiddenKeywords.map((item) => item.trim()).filter(Boolean),
+    allowDeviceAction: testCase.allowDeviceAction,
     riskLevel: testCase.riskLevel,
     notes: testCase.notes?.trim(),
   };
@@ -513,6 +540,12 @@ function buildTestCaseFromCells(
     category,
     inputText,
     expectedIntent: parseIntent(values.expectedIntent),
+    expectedResultType: parseResultType(values.expectedResultType),
+    expectedSlots: parseExpectedSlots(values),
+    expectedSafetyDecision: parseSafetyDecision(values.expectedSafetyDecision),
+    requiredKeywords: parseKeywords(values.requiredKeywords),
+    forbiddenKeywords: parseKeywords(values.forbiddenKeywords),
+    allowDeviceAction: parseNullableBoolean(values.allowDeviceAction),
     riskLevel: parseRiskLevel(values.riskLevel),
     notes: values.notes || undefined,
   };
@@ -585,6 +618,31 @@ function normalizeHeader(value: string): string {
     case "期望意图":
     case "目标意图":
       return "expectedIntent";
+    case "expectedresulttype":
+    case "期望结果类型":
+    case "结果类型":
+      return "expectedResultType";
+    case "temperature":
+    case "期望温度":
+    case "温度":
+      return "temperature";
+    case "durationminutes":
+    case "期望时长":
+    case "时长分钟":
+      return "durationMinutes";
+    case "expectedsafetydecision":
+    case "期望安全裁决":
+    case "安全裁决":
+      return "expectedSafetyDecision";
+    case "requiredkeywords":
+    case "必须关键词":
+      return "requiredKeywords";
+    case "forbiddenkeywords":
+    case "禁止关键词":
+      return "forbiddenKeywords";
+    case "allowdeviceaction":
+    case "允许设备动作":
+      return "allowDeviceAction";
     case "risklevel":
     case "风险":
       return "riskLevel";
@@ -597,8 +655,8 @@ function normalizeHeader(value: string): string {
   }
 }
 
-function parseIntent(value: string): TestCase["expectedIntent"] {
-  const trimmed = value.trim();
+function parseIntent(value: string | undefined): TestCase["expectedIntent"] {
+  const trimmed = value?.trim() ?? "";
   if (
     !trimmed ||
     trimmed === "-" ||
@@ -648,8 +706,53 @@ function parseIntent(value: string): TestCase["expectedIntent"] {
     : null;
 }
 
-function parseRiskLevel(value: string): TestCase["riskLevel"] {
-  const normalized = value.trim().toUpperCase();
+function parseResultType(value: string | undefined): TestCase["expectedResultType"] {
+  const normalized = value?.trim().toUpperCase().replace(/\s+/g, "_") ?? "";
+  return ["DEVICE_CONTROL", "CHAT", "NEED_CLARIFY", "REJECT", "NO_ACTION"]
+    .includes(normalized)
+    ? (normalized as TestCase["expectedResultType"])
+    : null;
+}
+
+function parseSafetyDecision(value: string | undefined): TestCase["expectedSafetyDecision"] {
+  const normalized = value?.trim().toUpperCase().replace(/\s+/g, "_") ?? "";
+  return ["APPROVED", "REJECTED", "NEEDS_CONFIRMATION", "NO_ACTION"]
+    .includes(normalized)
+    ? (normalized as TestCase["expectedSafetyDecision"])
+    : null;
+}
+
+function parseExpectedSlots(values: Record<string, string>): TestCase["expectedSlots"] {
+  const temperature = parseOptionalInteger(values.temperature);
+  const durationMinutes = parseOptionalInteger(values.durationMinutes);
+  return {
+    ...(temperature === null ? {} : { temperature }),
+    ...(durationMinutes === null ? {} : { durationMinutes }),
+  };
+}
+
+function parseOptionalInteger(value: string | undefined): number | null {
+  if (!value?.trim()) return null;
+  const parsed = Number(value.trim());
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+function parseKeywords(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(/[,，;；、]/g)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function parseNullableBoolean(value: string | undefined): boolean | null {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  if (["true", "yes", "1", "是", "允许"].includes(normalized)) return true;
+  if (["false", "no", "0", "否", "禁止"].includes(normalized)) return false;
+  return null;
+}
+
+function parseRiskLevel(value: string | undefined): TestCase["riskLevel"] {
+  const normalized = value?.trim().toUpperCase() ?? "";
   if (normalized === "MEDIUM" || normalized === "HIGH") {
     return normalized;
   }

@@ -30,17 +30,17 @@
     "offlinePlans": [
       {
         "id": "esp32-c3-ci1302",
-        "name": "ESP32-C3 + CI1302 + 3 x PCF8574",
+        "name": "ESP32-C3 + CI1302 + independent audio codec",
         "architecture": "HYBRID_CLOUD_ASR",
-        "chipName": "ESP32-C3 + CI1302 + 3 x PCF8574",
+        "chipName": "ESP32-C3 + CI1302 + audio codec",
         "recognitionType": "KEYWORD",
         "unitHardwareDeltaCny": 0,
         "annualServiceCnyPerDevice": 0,
         "expectedOfflineRatePercent": 80,
         "supportsFreeSpeech": false,
-        "maturity": "MATURE",
+        "maturity": "VALIDATING",
         "sourceUrl": null,
-        "notes": "当前量产基线。CI1302通过UART上报控制事件并通过I2S传输PCM；C3内置BLE连接墙面触控板和手持遥控器；三颗PCF8574提供24路低速IO。实际BOM由东信报价回填。"
+        "notes": "当前语音基线。CI1302只通过UART上报唤醒和离线语义ID；C3通过独立麦克风及音频Codec采集在线PCM并播放TTS。首版采用双麦，Codec、功放和麦克风实际BOM待硬件报价回填。"
       },
       {
         "id": "esp32-s3-ci1302",

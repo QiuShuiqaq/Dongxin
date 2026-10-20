@@ -40,6 +40,7 @@ import type {
   BatchTestRun,
   BoardPin,
   BoardProfile,
+  Ci1302EventSimulationResponse,
   DeviceExecutionTrace,
   DeviceProfile,
   DeviceState,
@@ -94,13 +95,16 @@ import {
   getDeviceState,
   getLocalAgentHealth,
   getLocalSerialPorts,
+  getStm32LinkEvents,
   getTestSetSummaries,
   getVoiceTest,
   getVoiceTests,
+  importTestSetMarkdown,
   retryFailedBatchTest,
   saveAiProviders,
   saveProviderApiKey,
   sendDeviceCommand,
+  simulateCi1302Event,
   setDefaultAiProvider,
   startBoardLabAction,
   startBatchTest,
@@ -128,6 +132,7 @@ import type {
   LlmModuleTestResult,
   ModelProvider,
   ProviderDiagnosticResult,
+  Stm32LinkEvent,
   TestSetSummary,
 } from "./api";
 
@@ -458,8 +463,8 @@ function OverviewPage(props: {
       <section className="metric-grid" aria-label="研发状态">
         <Metric
           label="当前阶段"
-          value="P2"
-          detail="STM32只读接入"
+          value="P3"
+          detail="STM32双向联调"
           tone="green"
         />
         <Metric
@@ -503,10 +508,10 @@ function OverviewPage(props: {
               CI1302 · 后续接入，不阻塞当前开发
             </Descriptions.Item>
             <Descriptions.Item label="当前串口">
-              STM32 TX → C3 GPIO19 · 只读监听
+              GPIO19接收 · GPIO18分级发送
             </Descriptions.Item>
             <Descriptions.Item label="发送状态">
-              <Tag color="orange">GPIO18 禁止发送</Tag>
+              <Tag color="blue">照明阶段待实机验证</Tag>
             </Descriptions.Item>
           </Descriptions>
         </section>
@@ -521,8 +526,8 @@ function OverviewPage(props: {
       <Alert
         type="warning"
         showIcon
-        title="下一阶段：STM32双向协议适配"
-        description="在控制协议、帧方向和安全边界确认前，研发中心不会向样机发送数据。当前收到的32字节状态帧只作为串口接收链路已打通的证据。"
+        title="当前任务：照明双向闭环"
+        description="分级适配器和实时协议监听已构建。断电连接GPIO18并烧录新固件后，先验证照明命令和STM32匹配回执；风路与取暖仍由固件门禁锁定。"
       />
     </div>
   );
@@ -1180,7 +1185,39 @@ function TestingPage(props: {
   onCommand: (intent: string) => void;
 }) {
   const virtual = props.board.executionMode === "LOCAL_VIRTUAL";
-  const readOnlyMonitor = props.board.executionMode === "STM32_UART_MONITOR";
+  const stm32Adapter = props.board.executionMode === "STM32_UART_MONITOR";
+  const stm32Control = Boolean(props.device?.capabilities?.stm32UartControl);
+  const lightControl = Boolean(props.device?.capabilities?.stm32LightControl);
+  const airControl = Boolean(props.device?.capabilities?.stm32AirControl);
+  const heaterControl = Boolean(props.device?.capabilities?.stm32HeaterControl);
+  const [liveListening, setLiveListening] = useState(true);
+  const [linkEvents, setLinkEvents] = useState<Stm32LinkEvent[]>([]);
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!props.device || !stm32Adapter || !liveListening) return;
+    let active = true;
+    const refreshLink = async () => {
+      try {
+        const events = await getStm32LinkEvents(props.device!.id, 100);
+        if (active) {
+          setLinkEvents(events);
+          setLinkError(null);
+        }
+      } catch (error) {
+        if (active) {
+          setLinkError(error instanceof Error ? error.message : String(error));
+        }
+      }
+    };
+    void refreshLink();
+    const timer = window.setInterval(() => void refreshLink(), 1000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [props.device?.id, stm32Adapter, liveListening]);
+
   const outputList = [
     ["照明", "LIGHT_ON"],
     ["吹风", "FAN_ON"],
@@ -1192,18 +1229,22 @@ function TestingPage(props: {
   return (
     <div className="page-stack">
       <Alert
-        type={readOnlyMonitor ? "info" : virtual ? "info" : "warning"}
+        type={stm32Adapter ? (stm32Control ? "success" : "info") : virtual ? "info" : "warning"}
         showIcon
         title={
-          readOnlyMonitor
-            ? "当前为STM32串口只读监听：GPIO19接收已验证，GPIO18发送保持禁用"
+          stm32Adapter
+            ? stm32Control
+              ? `STM32双向适配器已启用：当前${heaterControl ? "完整控制" : airControl ? "风路控制" : "仅照明控制"}阶段`
+              : "当前固件仍为STM32串口只读监听"
             : virtual
               ? "当前为LOCAL_VIRTUAL：只验证C3内部逻辑，不驱动物理负载"
               : "当前为物理HAL：操作前必须确认低压台架和安全隔离"
         }
         description={
-          readOnlyMonitor
-            ? "控制按钮将在完成STM32双向协议适配和安全检查后开放。下方C3设备影子不是STM32样机的真实执行状态。"
+          stm32Adapter
+            ? stm32Control
+              ? "GPIO18发送命令，GPIO19接收状态；只有收到命令和值匹配、实际状态一致的STM32回执，平台才记录为执行成功。"
+              : "请先烧录0.8.0固件并确认第三根线，再开放控制。GPIO19状态监听仍可继续使用。"
             : undefined
         }
       />
@@ -1212,8 +1253,10 @@ function TestingPage(props: {
           <SectionTitle
             title="样机控制"
             aside={
-              readOnlyMonitor ? (
-                <Tag color="orange">只读，发送已锁定</Tag>
+              stm32Adapter && !stm32Control ? (
+                <Tag color="orange">只读，等待新固件</Tag>
+              ) : stm32Adapter ? (
+                <Tag color="green">回执校验已启用</Tag>
               ) : (
                 <Badge
                   status={
@@ -1232,14 +1275,14 @@ function TestingPage(props: {
                 label="开启"
                 intent="LIGHT_ON"
                 icon={<ThunderboltOutlined />}
-                controlsDisabled={readOnlyMonitor}
+                controlsDisabled={stm32Adapter && !lightControl}
                 {...props}
               />
               <CommandButton
                 label="关闭"
                 intent="LIGHT_OFF"
                 icon={<PoweroffOutlined />}
-                controlsDisabled={readOnlyMonitor}
+                controlsDisabled={stm32Adapter && !lightControl}
                 {...props}
               />
             </CommandGroup>
@@ -1248,28 +1291,28 @@ function TestingPage(props: {
                 label="吹风"
                 intent="FAN_ON"
                 icon={<GatewayOutlined />}
-                controlsDisabled={readOnlyMonitor}
+                controlsDisabled={stm32Adapter && !airControl}
                 {...props}
               />
               <CommandButton
                 label="关风"
                 intent="FAN_OFF"
                 icon={<PoweroffOutlined />}
-                controlsDisabled={readOnlyMonitor}
+                controlsDisabled={stm32Adapter && !airControl}
                 {...props}
               />
               <CommandButton
                 label="换气"
                 intent="VENTILATION_ON"
                 icon={<GatewayOutlined />}
-                controlsDisabled={readOnlyMonitor}
+                controlsDisabled={stm32Adapter && !airControl}
                 {...props}
               />
               <CommandButton
                 label="关换气"
                 intent="VENTILATION_OFF"
                 icon={<PoweroffOutlined />}
-                controlsDisabled={readOnlyMonitor}
+                controlsDisabled={stm32Adapter && !airControl}
                 {...props}
               />
             </CommandGroup>
@@ -1278,14 +1321,16 @@ function TestingPage(props: {
                 label="弱暖"
                 intent="HEAT_WEAK_ON"
                 icon={<FireOutlined />}
-                controlsDisabled={readOnlyMonitor}
+                controlsDisabled={stm32Adapter && !heaterControl}
+                confirmDangerous
                 {...props}
               />
               <CommandButton
                 label="强暖"
                 intent="HEAT_STRONG_ON"
                 icon={<FireOutlined />}
-                controlsDisabled={readOnlyMonitor}
+                controlsDisabled={stm32Adapter && !heaterControl}
+                confirmDangerous
                 danger
                 {...props}
               />
@@ -1293,23 +1338,27 @@ function TestingPage(props: {
                 label="关取暖"
                 intent="HEAT_STRONG_OFF"
                 icon={<PoweroffOutlined />}
-                controlsDisabled={readOnlyMonitor}
+                controlsDisabled={stm32Adapter && !stm32Control}
                 {...props}
               />
             </CommandGroup>
             <CommandGroup title="安全验证">
-              <CommandButton
-                label="开启恒温"
-                intent="CONSTANT_TEMP_ON"
-                icon={<SafetyCertificateOutlined />}
-                controlsDisabled={readOnlyMonitor}
-                {...props}
-              />
+              <Tooltip title="当前STM32样机协议没有目标温度下发和恒温闭环命令，完成协议扩展前不可测试">
+                <span>
+                  <CommandButton
+                    label="恒温（待协议支持）"
+                    intent="CONSTANT_TEMP_ON"
+                    icon={<SafetyCertificateOutlined />}
+                    controlsDisabled={stm32Adapter}
+                    {...props}
+                  />
+                </span>
+              </Tooltip>
               <CommandButton
                 label="整机待机"
                 intent="STANDBY"
                 icon={<PoweroffOutlined />}
-                controlsDisabled={readOnlyMonitor}
+                controlsDisabled={stm32Adapter && !stm32Control}
                 {...props}
               />
             </CommandGroup>
@@ -1318,7 +1367,7 @@ function TestingPage(props: {
         <section className="workspace-section state-console">
           <SectionTitle
             title={
-              readOnlyMonitor ? "C3研发状态（非STM32实机状态）" : "设备影子"
+              stm32Adapter ? "STM32样机实时状态" : "设备影子"
             }
             aside={
               <span className="muted">
@@ -1364,14 +1413,175 @@ function TestingPage(props: {
           </div>
         </section>
       </div>
+      {stm32Adapter ? (
+        <Stm32LinkMonitor
+          events={linkEvents}
+          error={linkError}
+          listening={liveListening}
+          onListeningChange={setLiveListening}
+        />
+      ) : null}
       <section className="workspace-section">
         <SectionTitle
           title="C3命令与联调记录"
-          aside={readOnlyMonitor ? <Tag>不得作为样机动作证明</Tag> : undefined}
+          aside={
+            stm32Adapter && !stm32Control ? (
+              <Tag>只读记录</Tag>
+            ) : stm32Adapter ? (
+              <Tag color="green">以STM32回执为准</Tag>
+            ) : undefined
+          }
         />
         <TraceTable traces={props.traces.slice(0, 10)} />
       </section>
     </div>
+  );
+}
+
+function Stm32LinkMonitor({
+  events,
+  error,
+  listening,
+  onListeningChange,
+}: {
+  events: Stm32LinkEvent[];
+  error: string | null;
+  listening: boolean;
+  onListeningChange: (value: boolean) => void;
+}) {
+  const latest = events[0];
+  const invalidCount = events.filter((event) => !event.payload.valid).length;
+  const ackCount = events.filter(
+    (event) => event.payload.eventType === "COMMAND_ACK",
+  ).length;
+  const eventLabels: Record<Stm32LinkEvent["payload"]["eventType"], string> = {
+    STATUS: "状态上报",
+    NETWORK_STATUS_REQUEST: "联网查询",
+    COMMAND: "命令发送",
+    COMMAND_ACK: "命令回执",
+    COMMAND_ACK_MISMATCH: "回执不一致",
+    COMMAND_TIMEOUT: "回执超时",
+    FRAME_REJECTED: "无效帧",
+  };
+
+  return (
+    <section className="workspace-section protocol-monitor">
+      <SectionTitle
+        title="STM32 实时协议监听"
+        aside={
+          <Space size="small">
+            <Badge
+              status={listening ? "processing" : "default"}
+              text={listening ? "每秒刷新" : "已暂停"}
+            />
+            <Switch
+              size="small"
+              checked={listening}
+              onChange={onListeningChange}
+              aria-label="实时监听"
+            />
+          </Space>
+        }
+      />
+      <div className="protocol-summary">
+        <div>
+          <span>最新方向</span>
+          <strong>{latest?.payload.direction || "-"}</strong>
+        </div>
+        <div>
+          <span>最新事件</span>
+          <strong>
+            {latest ? eventLabels[latest.payload.eventType] : "等待数据"}
+          </strong>
+        </div>
+        <div>
+          <span>已确认回执</span>
+          <strong>{ackCount}</strong>
+        </div>
+        <div>
+          <span>无效帧</span>
+          <strong className={invalidCount ? "protocol-error" : ""}>
+            {invalidCount}
+          </strong>
+        </div>
+      </div>
+      {error ? (
+        <Alert type="error" showIcon title="监听接口暂时不可用" description={error} />
+      ) : null}
+      <Table
+        size="small"
+        rowKey="id"
+        pagination={false}
+        dataSource={events.slice(0, 40)}
+        locale={{ emptyText: "等待C3上报STM32协议帧" }}
+        scroll={{ x: 980, y: 360 }}
+        columns={[
+          {
+            title: "时间",
+            dataIndex: "createdAt",
+            width: 105,
+            render: formatTime,
+          },
+          {
+            title: "方向",
+            width: 72,
+            render: (_: unknown, event: Stm32LinkEvent) => (
+              <Tag color={event.payload.direction === "RX" ? "blue" : "green"}>
+                {event.payload.direction}
+              </Tag>
+            ),
+          },
+          {
+            title: "事件",
+            width: 110,
+            render: (_: unknown, event: Stm32LinkEvent) =>
+              eventLabels[event.payload.eventType],
+          },
+          {
+            title: "命令 / 值",
+            width: 105,
+            render: (_: unknown, event: Stm32LinkEvent) =>
+              typeof event.payload.command === "number"
+                ? `0x${event.payload.command.toString(16).padStart(2, "0").toUpperCase()} / ${event.payload.value ?? "-"}`
+                : "-",
+          },
+          {
+            title: "解析状态",
+            width: 230,
+            render: (_: unknown, event: Stm32LinkEvent) => {
+              const state = event.payload.state;
+              if (!state) return event.payload.result || "-";
+              const active = [
+                state.light && "照明",
+                state.fan && "吹风",
+                state.ventilation && "换气",
+                state.heater !== "off" &&
+                  (state.heater === "strong" ? "强暖" : "弱暖"),
+                state.swing && "摆风",
+                state.dry && "干燥",
+              ].filter(Boolean);
+              return `${state.temperatureCelsius}℃ · ${active.join("、") || "负载关闭"}`;
+            },
+          },
+          {
+            title: "结果",
+            width: 115,
+            render: (_: unknown, event: Stm32LinkEvent) => (
+              <Tag color={event.payload.valid ? "green" : "red"}>
+                {event.payload.result || (event.payload.valid ? "有效" : "无效")}
+              </Tag>
+            ),
+          },
+          {
+            title: "原始32字节帧",
+            width: 500,
+            render: (_: unknown, event: Stm32LinkEvent) => (
+              <code className="protocol-frame">{event.payload.frame || "-"}</code>
+            ),
+          },
+        ]}
+      />
+    </section>
   );
 }
 
@@ -2213,6 +2423,13 @@ function BatchTestingPage({ device }: { device: DeviceProfile | null }) {
   const [expectedText, setExpectedText] = useState("");
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [importName, setImportName] = useState("DX-LLM-CONTROL-V1-CANDIDATE");
+  const [importMarkdown, setImportMarkdown] = useState("");
+  const [importingTestSet, setImportingTestSet] = useState(false);
+  const [captureSession, setCaptureSession] =
+    useState<VoiceTestSession | null>(null);
+  const [captureStarting, setCaptureStarting] = useState(false);
+  const [captureStopping, setCaptureStopping] = useState(false);
 
   async function refreshBatchData() {
     try {
@@ -2253,6 +2470,26 @@ function BatchTestingPage({ device }: { device: DeviceProfile | null }) {
     const timer = window.setInterval(() => void refreshBatchData(), 1000);
     return () => window.clearInterval(timer);
   }, [running, selectedRun?.id]);
+
+  const captureActive = Boolean(
+    captureSession &&
+      !["COMPLETED", "CANCELLED", "FAILED"].includes(captureSession.status),
+  );
+  useEffect(() => {
+    if (!captureActive || !captureSession) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const next = await getVoiceTest(captureSession.id);
+        setCaptureSession(next);
+        if (["COMPLETED", "CANCELLED", "FAILED"].includes(next.status)) {
+          await refreshBatchData();
+        }
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : String(error));
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [captureActive, captureSession?.id]);
 
   const providers =
     configuration?.providers.filter(
@@ -2330,6 +2567,57 @@ function BatchTestingPage({ device }: { device: DeviceProfile | null }) {
     }
   }
 
+  async function captureAudioFromBoard() {
+    if (!device || !datasetId || !expectedText.trim()) return;
+    setCaptureStarting(true);
+    try {
+      const session = await startVoiceTest(device.id, "ASR_ONLY", {
+        asrDatasetId: datasetId,
+        expectedText: expectedText.trim(),
+      });
+      setCaptureSession(session);
+      setExpectedText("");
+      message.success("静音录音命令已发送，请等待页面提示后说出样本内容");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCaptureStarting(false);
+    }
+  }
+
+  async function importStrictTestSet() {
+    if (!importName.trim() || !importMarkdown.trim()) return;
+    setImportingTestSet(true);
+    try {
+      const imported = await importTestSetMarkdown({
+        name: importName.trim(),
+        description: "设备控制、槽位和安全裁决候选测试集；正式执行前需人工复核",
+        markdown: importMarkdown,
+        kind: "CUSTOM",
+      });
+      await refreshBatchData();
+      setTestSetId(imported.id);
+      setImportMarkdown("");
+      message.success(`已导入 ${imported.caseCount} 条测试用例`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setImportingTestSet(false);
+    }
+  }
+
+  async function stopBoardCapture() {
+    if (!captureSession) return;
+    setCaptureStopping(true);
+    try {
+      setCaptureSession(await stopVoiceTest(captureSession.id));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCaptureStopping(false);
+    }
+  }
+
   function confirmDeleteDataset() {
     if (!selectedDataset) return;
     modal.confirm({
@@ -2388,6 +2676,11 @@ function BatchTestingPage({ device }: { device: DeviceProfile | null }) {
   }
 
   const selectedDataset = datasets.find((item) => item.id === datasetId);
+  const boardCaptureSupported = Boolean(
+    device?.status === "ONLINE" &&
+      device.model.includes("LICHUANG-AUDIO") &&
+      device.capabilities?.voiceTestControl,
+  );
   return (
     <div className="page-stack">
       <Alert
@@ -2483,6 +2776,33 @@ function BatchTestingPage({ device }: { device: DeviceProfile | null }) {
           >
             开始批量测试
           </Button>
+          {kind === "LLM" ? (
+            <details className="dataset-importer">
+              <summary>导入带结构化期望的测试集</summary>
+              <Input
+                value={importName}
+                maxLength={100}
+                placeholder="测试集名称"
+                onChange={(event) => setImportName(event.target.value)}
+              />
+              <Input.TextArea
+                value={importMarkdown}
+                autoSize={{ minRows: 5, maxRows: 12 }}
+                placeholder={
+                  "粘贴Markdown表格。支持列：分类、测试语句、期望意图、期望结果类型、期望温度、期望时长、期望安全裁决、必须关键词、禁止关键词、允许设备动作、风险"
+                }
+                onChange={(event) => setImportMarkdown(event.target.value)}
+              />
+              <Button
+                icon={<UploadOutlined />}
+                loading={importingTestSet}
+                disabled={!importName.trim() || !importMarkdown.trim()}
+                onClick={() => void importStrictTestSet()}
+              >
+                导入并选择
+              </Button>
+            </details>
+          ) : null}
         </section>
         <section className="workspace-section asr-dataset-panel">
           <SectionTitle
@@ -2550,6 +2870,64 @@ function BatchTestingPage({ device }: { device: DeviceProfile | null }) {
           >
             保存录音样本
           </Button>
+          <div className="voice-test-actions">
+            <Tooltip title="静音采集立创板麦克风的6秒PCM，并自动归档为WAV样本">
+              <span>
+                <Button
+                  type="primary"
+                  icon={<AudioOutlined />}
+                  loading={captureStarting}
+                  disabled={
+                    !boardCaptureSupported ||
+                    !datasetId ||
+                    !expectedText.trim() ||
+                    captureActive
+                  }
+                  onClick={() => void captureAudioFromBoard()}
+                >
+                  从立创板采集
+                </Button>
+              </span>
+            </Tooltip>
+            <Button
+              danger
+              icon={<StopOutlined />}
+              loading={captureStopping}
+              disabled={
+                !captureActive || captureSession?.status === "PROCESSING"
+              }
+              onClick={() => void stopBoardCapture()}
+            >
+              停止采集
+            </Button>
+          </div>
+          {!boardCaptureSupported ? (
+            <Alert
+              type="info"
+              showIcon
+              title="选择在线的立创ESP32-C3音频板后可直接采集"
+            />
+          ) : null}
+          {captureSession ? (
+            <Alert
+              type={
+                captureSession.status === "FAILED"
+                  ? "error"
+                  : captureSession.status === "COMPLETED"
+                    ? "success"
+                    : "info"
+              }
+              showIcon
+              title={voiceTestStatusLabel(captureSession.status)}
+              description={
+                captureSession.status === "RECORDING"
+                  ? `请现在说：“${captureSession.expectedText}”。开发板功放保持关闭，不会播放声音。`
+                  : captureSession.capturedDatasetItemId
+                    ? `${captureSession.message}；期望“${captureSession.expectedText}”，本次识别“${captureSession.result?.transcript || "等待结果"}”。`
+                    : captureSession.message
+              }
+            />
+          ) : null}
         </section>
       </div>
       <section className="workspace-section">
@@ -2776,7 +3154,7 @@ function BatchRunDetail({
       <Table
         rowKey="id"
         size="small"
-        scroll={{ x: 1100 }}
+        scroll={{ x: 1380 }}
         pagination={{ pageSize: 20 }}
         dataSource={run.items}
         columns={[
@@ -2798,6 +3176,23 @@ function BatchRunDetail({
             width: 260,
             render: (_: unknown, item: BatchTestRun["items"][number]) =>
               item.actualText || item.actualIntent || "-",
+          },
+          {
+            title: "结构化结果",
+            width: 220,
+            render: (_: unknown, item: BatchTestRun["items"][number]) => {
+              const values = [
+                item.actualResultType,
+                item.actualSafetyDecision,
+                item.actualSlots.temperature === undefined
+                  ? null
+                  : `${item.actualSlots.temperature}℃`,
+                item.actualSlots.durationMinutes === undefined
+                  ? null
+                  : `${item.actualSlots.durationMinutes}分钟`,
+              ].filter(Boolean);
+              return values.length ? values.join(" · ") : "-";
+            },
           },
           {
             title: "结果",
@@ -2827,6 +3222,13 @@ function BatchRunDetail({
             dataIndex: "costCny",
             width: 100,
             render: (value: number) => `¥${value.toFixed(6)}`,
+          },
+          {
+            title: "判定明细",
+            dataIndex: "failureReason",
+            width: 280,
+            ellipsis: true,
+            render: (value: string | null) => value || "全部期望字段匹配",
           },
           {
             title: "错误",
@@ -2901,6 +3303,17 @@ function VoicePage({
   const [audioTest, setAudioTest] = useState<DeviceAudioTestResult | null>(
     null,
   );
+  const enabledOfflineCommands = (voice?.commands ?? []).filter(
+    (command) => command.enabled,
+  );
+  const [offlineSemanticId, setOfflineSemanticId] = useState<number | null>(
+    enabledOfflineCommands[0]?.semanticId ?? null,
+  );
+  const [ciSimulationLoading, setCiSimulationLoading] = useState<
+    "HIT" | "MISS_ONLINE" | "MISS_OFFLINE" | null
+  >(null);
+  const [ciSimulationResult, setCiSimulationResult] =
+    useState<Ci1302EventSimulationResponse | null>(null);
   const voiceTestSupported = device?.capabilities?.voiceTestControl === true;
   const audioPlaybackSupported = device?.capabilities?.audioPlayback === true;
   const online = device?.status === "ONLINE";
@@ -2917,6 +3330,17 @@ function VoicePage({
       session.status,
     ),
   );
+
+  useEffect(() => {
+    if (
+      offlineSemanticId === null ||
+      !enabledOfflineCommands.some(
+        (command) => command.semanticId === offlineSemanticId,
+      )
+    ) {
+      setOfflineSemanticId(enabledOfflineCommands[0]?.semanticId ?? null);
+    }
+  }, [enabledOfflineCommands, offlineSemanticId]);
 
   useEffect(() => {
     setSession(null);
@@ -2976,7 +3400,10 @@ function VoicePage({
   );
 
   async function handleStart(
-    mode: "FULL_PIPELINE" | "ASR_ONLY" = "FULL_PIPELINE",
+    mode:
+      | "FULL_PIPELINE"
+      | "ASR_ONLY"
+      | "CI_WAKE_ONLINE_FALLBACK" = "FULL_PIPELINE",
   ) {
     if (!device) return;
     stopBrowserPlayback(false);
@@ -2985,7 +3412,11 @@ function VoicePage({
       const next = await startVoiceTest(device.id, mode);
       setSession(next);
       message.success(
-        mode === "ASR_ONLY" ? "ASR 录音命令已发送" : "整链路测试命令已发送",
+        mode === "ASR_ONLY"
+          ? "ASR 录音命令已发送"
+          : mode === "CI_WAKE_ONLINE_FALLBACK"
+            ? "已模拟CI唤醒，请直接说命令或问题"
+            : "整链路测试命令已发送",
       );
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
@@ -3005,6 +3436,33 @@ function VoicePage({
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
       setLlmLoading(false);
+    }
+  }
+
+  async function handleCiSimulation(
+    scenario: "HIT" | "MISS_ONLINE" | "MISS_OFFLINE",
+  ) {
+    if (!device || !product || !voice) return;
+    if (scenario === "HIT" && offlineSemanticId === null) {
+      message.warning("当前离线词表没有可用语义ID");
+      return;
+    }
+    setCiSimulationLoading(scenario);
+    try {
+      const result = await simulateCi1302Event({
+        deviceId: device.id,
+        productProfileId: product.id,
+        voiceProfileId: voice.id,
+        eventType: scenario === "HIT" ? "OFFLINE_COMMAND" : "OFFLINE_MISS",
+        semanticId: scenario === "HIT" ? offlineSemanticId : null,
+        networkOnline: scenario !== "MISS_OFFLINE",
+      });
+      setCiSimulationResult(result);
+      message.success("CI UART逻辑模拟已完成，未向样机下发动作");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCiSimulationLoading(null);
     }
   }
 
@@ -3123,8 +3581,8 @@ function VoicePage({
       <section className="metric-grid">
         <Metric
           label="当前输入"
-          value="立创C3按键录音"
-          detail="替代量产唤醒入口"
+          value="立创C3独立麦克风"
+          detail="真实PCM采集与在线ASR"
         />
         <Metric
           label="测试唤醒词"
@@ -3343,8 +3801,8 @@ function VoicePage({
         <Alert
           type="info"
           showIcon
-          title="立创板当前用于验证云端唤醒和对话链路"
-          description="点击开始后打开 6 秒录音窗口；只说“小东小东”并识别成功时，开发板会低音量回复“我在”。量产机的常驻离线唤醒由 CI1302 完成。"
+          title="离线模块未到，当前验证C3独立在线音频链路"
+          description="普通整链路测试需要说“小东小东 + 内容”；在线回退测试会模拟CI已经唤醒，录音开始后只说命令或问题。两种模式都使用立创板真实麦克风和真实在线ASR。"
         />
         <div className="voice-test-layout">
           <div className="voice-test-controls">
@@ -3368,11 +3826,26 @@ function VoicePage({
                 disabled={
                   !voiceTestSupported || !online || active || deviceAudioActive
                 }
-                loading={starting && session?.mode !== "ASR_ONLY"}
+                loading={starting && session?.mode === "FULL_PIPELINE"}
                 onClick={() => void handleStart()}
               >
                 开始整链路测试
               </Button>
+              <Tooltip title="只模拟CI唤醒事件；录音、ASR和后续处理均为真实链路">
+                <Button
+                  size="large"
+                  icon={<GatewayOutlined />}
+                  disabled={
+                    !voiceTestSupported || !online || active || deviceAudioActive
+                  }
+                  loading={
+                    starting && session?.mode === "CI_WAKE_ONLINE_FALLBACK"
+                  }
+                  onClick={() => void handleStart("CI_WAKE_ONLINE_FALLBACK")}
+                >
+                  模拟CI唤醒后在线回退
+                </Button>
+              </Tooltip>
               <Tooltip
                 title={
                   session?.status === "PROCESSING"
@@ -3407,8 +3880,12 @@ function VoicePage({
               <Alert
                 type="success"
                 showIcon
-                title={`请现在说：“${voice?.wakeWord || "小东小东"} + 你的指令或问题”`}
-                description={`${session.recordSeconds} 秒后自动结束录音并上传。`}
+                title={
+                  session.mode === "CI_WAKE_ONLINE_FALLBACK"
+                    ? "CI唤醒已模拟，请直接说你的指令或问题"
+                    : `请现在说：“${voice?.wakeWord || "小东小东"} + 你的指令或问题”`
+                }
+                description={`${session.recordSeconds} 秒后自动结束录音并上传。本模式不会生成CI1302硬件测试结论。`}
               />
             ) : null}
           </div>
@@ -3417,9 +3894,75 @@ function VoicePage({
       </section>
       <VoiceTestResult session={session} />
       <section className="workspace-section">
+        <SectionTitle
+          title="CI UART逻辑模拟"
+          aside={<Tag color="orange">无模块 · 不计入硬件验证</Tag>}
+        />
+        <Alert
+          type="warning"
+          showIcon
+          title="只验证语义ID和路由，不模拟识别准确率"
+          description="这里不会操作开发板或STM32。固定命令命中用于检查语义ID映射；未命中分支用于检查有网转在线ASR、无网返回固定提示的设计结果。"
+        />
+        <div className="voice-test-layout">
+          <div className="voice-test-controls">
+            <Select
+              value={offlineSemanticId}
+              style={{ width: "100%" }}
+              placeholder="选择离线固定命令"
+              options={enabledOfflineCommands.map((command) => ({
+                value: command.semanticId,
+                label: `${command.semanticId} · ${command.phrase}`,
+              }))}
+              onChange={setOfflineSemanticId}
+            />
+            <div className="voice-test-actions">
+              <Button
+                type="primary"
+                loading={ciSimulationLoading === "HIT"}
+                disabled={!device || !product || !voice || offlineSemanticId === null}
+                onClick={() => void handleCiSimulation("HIT")}
+              >
+                模拟固定命令命中
+              </Button>
+              <Button
+                loading={ciSimulationLoading === "MISS_ONLINE"}
+                disabled={!device || !product || !voice}
+                onClick={() => void handleCiSimulation("MISS_ONLINE")}
+              >
+                模拟未命中（有网）
+              </Button>
+              <Button
+                loading={ciSimulationLoading === "MISS_OFFLINE"}
+                disabled={!device || !product || !voice}
+                onClick={() => void handleCiSimulation("MISS_OFFLINE")}
+              >
+                模拟未命中（断网）
+              </Button>
+            </div>
+          </div>
+          <div className="module-result">
+            <span>模拟结果</span>
+            <strong>
+              {ciSimulationResult
+                ? `${ciSimulationResult.route} · ${ciSimulationResult.accepted ? "已接受" : "已拒绝"}`
+                : "等待测试"}
+            </strong>
+            {ciSimulationResult ? (
+              <p>
+                {ciSimulationResult.reason}
+                {ciSimulationResult.feedback
+                  ? `；反馈：${ciSimulationResult.feedback}`
+                  : ""}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </section>
+      <section className="workspace-section">
         <SectionTitle title="当前在线语音链路" />
         <div className="voice-flow">
-          <FlowNode title="按键开始录音" note="立创C3麦克风" />
+          <FlowNode title="网页或按键开始录音" note="C3独立麦克风" />
           <FlowArrow />
           <FlowNode title="ASR识别" note="语音转文本" />
           <FlowArrow />
@@ -3433,7 +3976,7 @@ function VoicePage({
           type="info"
           showIcon
           title="CI1302在后续样板阶段接入"
-          description="届时由CI1302负责“小东小东”常驻唤醒和断网固定命令，再统一进入C3；当前在线链路和测试数据不需要推倒重做。"
+          description="届时只把CI1302的唤醒和离线语义ID接入C3 UART；在线录音和TTS继续使用C3独立Codec。当前可用在线回退模式提前验证CI唤醒之后的完整路径。"
         />
       </section>
     </div>
@@ -4010,11 +4553,27 @@ function CommandButton(props: {
   intent: string;
   icon: ReactNode;
   danger?: boolean;
+  confirmDangerous?: boolean;
   controlsDisabled?: boolean;
   sendingIntent: string | null;
   onCommand: (intent: string) => void;
   device?: DeviceProfile | null;
 }) {
+  const { modal } = App.useApp();
+  const execute = () => {
+    if (!props.confirmDangerous) {
+      props.onCommand(props.intent);
+      return;
+    }
+    modal.confirm({
+      title: `确认执行“${props.label}”`,
+      content: "该操作会启动样机取暖负载。请确认样机有人值守、出风口无遮挡，并且可以立即断电。",
+      okText: "确认启动",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      onOk: () => props.onCommand(props.intent),
+    });
+  };
   return (
     <Button
       icon={props.icon}
@@ -4025,7 +4584,7 @@ function CommandButton(props: {
         Boolean(props.sendingIntent)
       }
       loading={props.sendingIntent === props.intent}
-      onClick={() => props.onCommand(props.intent)}
+      onClick={execute}
     >
       {props.label}
     </Button>
@@ -4233,13 +4792,13 @@ function ExecutionModeTag({ board }: { board: BoardProfile | null }) {
     <Tag
       color={
         monitor
-          ? "orange"
+          ? "blue"
           : board?.executionMode === "LOCAL_PHYSICAL"
             ? "volcano"
             : "geekblue"
       }
     >
-      {monitor ? "STM32串口只读" : board?.executionMode || "-"}
+      {monitor ? "STM32串口适配" : board?.executionMode || "-"}
     </Tag>
   );
 }

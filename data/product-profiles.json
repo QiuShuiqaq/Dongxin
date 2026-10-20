@@ -24,7 +24,9 @@
     "voiceHardwareLink": {
       "controlTransport": "UART0",
       "controlBaudRate": 115200,
-      "audioTransport": "I2S_PCM",
+      "audioTransport": "C3_CODEC_I2S",
+      "audioOwner": "ESP32_C3",
+      "microphoneTopology": "DUAL_MIC",
       "audioSampleRateHz": 16000,
       "audioBitsPerSample": 16,
       "audioChannels": 1,

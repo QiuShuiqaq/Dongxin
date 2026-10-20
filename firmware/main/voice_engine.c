@@ -57,6 +57,7 @@ static volatile bool s_playback_cancel_requested;
 typedef struct {
     char test_session_id[VOICE_TEST_SESSION_ID_SIZE];
     bool asr_only;
+    bool ci_wake_online_fallback;
 } voice_test_request_t;
 
 typedef struct {
@@ -64,6 +65,11 @@ typedef struct {
     char audio_path[AUDIO_TEST_PATH_SIZE];
     int volume_percent;
 } audio_test_request_t;
+
+typedef struct {
+    bool play_wake_ack;
+    char audio_path[AUDIO_TEST_PATH_SIZE];
+} pipeline_playback_t;
 
 extern const uint8_t wake_ack_pcm_start[]
     asm("_binary_wake_ack_16k_mono_pcm_start");
@@ -214,8 +220,16 @@ static const char *json_string_or(const cJSON *object, const char *name, const c
         : fallback;
 }
 
-static bool log_pipeline_response(char *response, int status_code)
+static bool parse_pipeline_response(
+    char *response,
+    int status_code,
+    pipeline_playback_t *playback
+)
 {
+    if (playback == NULL) {
+        return false;
+    }
+    memset(playback, 0, sizeof(*playback));
     cJSON *root = cJSON_Parse(response);
     if (root == NULL) {
         ESP_LOGE(TAG, "HTTP %d returned invalid JSON: %.240s", status_code, response);
@@ -240,10 +254,19 @@ static bool log_pipeline_response(char *response, int status_code)
     ESP_LOGI(TAG, "Safety reason: %s", json_string_or(safety_result, "reason", "<none>"));
     const char *reply_text = json_string_or(data, "replyText", "<none>");
     ESP_LOGI(TAG, "Reply text: %s", reply_text);
-    const bool should_play_wake_ack = strcmp(reply_text, "我在") == 0;
+    playback->play_wake_ack = strcmp(reply_text, "我在") == 0;
+    const char *audio_path = json_string_or(data, "ttsAudioPath", "");
+    if (audio_path[0] != '\0') {
+        if (strlen(audio_path) >= sizeof(playback->audio_path)) {
+            ESP_LOGE(TAG, "TTS audio path is too long");
+            cJSON_Delete(root);
+            return false;
+        }
+        strncpy(playback->audio_path, audio_path, sizeof(playback->audio_path) - 1);
+    }
 
     cJSON_Delete(root);
-    return should_play_wake_ack;
+    return true;
 }
 
 static esp_err_t begin_audio_output(int volume_percent)
@@ -325,11 +348,17 @@ static esp_err_t play_wake_ack(void)
     return err;
 }
 
-static esp_err_t download_and_play_audio_test(const audio_test_request_t *request)
+static esp_err_t download_and_play_pcm(
+    const char *audio_path,
+    int volume_percent,
+    const char *audio_test_id
+)
 {
-    static const char *allowed_prefix = "/api/device/v1/audio-tests/";
-    if (request == NULL ||
-        strncmp(request->audio_path, allowed_prefix, strlen(allowed_prefix)) != 0) {
+    static const char *test_prefix = "/api/device/v1/audio-tests/";
+    static const char *reply_prefix = "/api/device/v1/voice-replies/";
+    if (audio_path == NULL ||
+        (strncmp(audio_path, test_prefix, strlen(test_prefix)) != 0 &&
+         strncmp(audio_path, reply_prefix, strlen(reply_prefix)) != 0)) {
         return ESP_ERR_INVALID_ARG;
     }
     if (!wifi_manager_wait_connected(DX_WIFI_CONNECT_TIMEOUT_SECONDS * 1000)) {
@@ -337,7 +366,7 @@ static esp_err_t download_and_play_audio_test(const audio_test_request_t *reques
     }
 
     char url[320];
-    const int url_length = snprintf(url, sizeof(url), "%s%s", DX_GATEWAY_BASE_URL, request->audio_path);
+    const int url_length = snprintf(url, sizeof(url), "%s%s", DX_GATEWAY_BASE_URL, audio_path);
     if (url_length <= 0 || (size_t)url_length >= sizeof(url)) {
         return ESP_ERR_INVALID_SIZE;
     }
@@ -374,11 +403,13 @@ static esp_err_t download_and_play_audio_test(const audio_test_request_t *reques
         err = ESP_ERR_INVALID_STATE;
         goto close_connection;
     }
-    err = begin_audio_output(request->volume_percent);
+    err = begin_audio_output(volume_percent);
     if (err != ESP_OK) {
         goto close_connection;
     }
-    mqtt_agent_report_audio_test(request->test_id, "PLAYING", "Low-volume PCM playback started");
+    if (audio_test_id != NULL) {
+        mqtt_agent_report_audio_test(audio_test_id, "PLAYING", "Low-volume PCM playback started");
+    }
 
     size_t total_bytes = 0;
     while (!s_playback_cancel_requested) {
@@ -445,7 +476,11 @@ static esp_err_t write_all(esp_http_client_handle_t client, const uint8_t *data,
     return ESP_OK;
 }
 
-static esp_err_t capture_and_upload(const char *test_session_id, bool asr_only)
+static esp_err_t capture_and_upload(
+    const char *test_session_id,
+    bool asr_only,
+    bool ci_wake_online_fallback
+)
 {
     const bool remote_test = test_session_id != NULL && test_session_id[0] != '\0';
     if (!wifi_manager_wait_connected(DX_WIFI_CONNECT_TIMEOUT_SECONDS * 1000)) {
@@ -462,7 +497,11 @@ static esp_err_t capture_and_upload(const char *test_session_id, bool asr_only)
     }
 
     const esp_http_client_config_t http_config = {
-        .url = asr_only ? DX_VOICE_PCM_ASR_ONLY_URL : DX_VOICE_PCM_URL,
+        .url = asr_only
+            ? DX_VOICE_PCM_ASR_ONLY_URL
+            : (ci_wake_online_fallback
+                ? DX_VOICE_PCM_CI_WAKE_FALLBACK_URL
+                : DX_VOICE_PCM_URL),
         .method = HTTP_METHOD_POST,
         .timeout_ms = DX_VOICE_HTTP_TIMEOUT_MS,
         .buffer_size = 2048,
@@ -489,7 +528,7 @@ static esp_err_t capture_and_upload(const char *test_session_id, bool asr_only)
 
     ESP_LOGI(TAG, "Preparing silent recording; speak after a short pause");
     esp_err_t err = ESP_OK;
-    bool play_ack_after_cleanup = false;
+    pipeline_playback_t playback = {0};
     if (s_cancel_requested) {
         err = ESP_ERR_INVALID_STATE;
         goto cleanup;
@@ -502,8 +541,11 @@ static esp_err_t capture_and_upload(const char *test_session_id, bool asr_only)
 
     ESP_LOGI(
         TAG,
-        "Silent recording started: %d seconds, say wake word and request now",
-        DX_VOICE_RECORD_SECONDS
+        "Silent recording started: %d seconds, %s",
+        DX_VOICE_RECORD_SECONDS,
+        ci_wake_online_fallback
+            ? "CI wake is simulated; say only the command or question"
+            : "say wake word and request now"
     );
     if (remote_test) {
         mqtt_agent_report_voice_test(
@@ -600,8 +642,8 @@ static esp_err_t capture_and_upload(const char *test_session_id, bool asr_only)
 
     const int status_code = esp_http_client_get_status_code(client);
     ESP_LOGI(TAG, "Voice pipeline HTTP status: %d, response bytes=%d", status_code, response_length);
-    play_ack_after_cleanup = log_pipeline_response(response_buffer, status_code);
-    err = status_code >= 200 && status_code < 300 ? ESP_OK : ESP_FAIL;
+    const bool parsed = parse_pipeline_response(response_buffer, status_code, &playback);
+    err = status_code >= 200 && status_code < 300 && parsed ? ESP_OK : ESP_FAIL;
 
 close_connection:
     esp_http_client_close(client);
@@ -609,8 +651,14 @@ cleanup:
     esp_http_client_cleanup(client);
     free(response_buffer);
     free(audio_buffer);
-    if (err == ESP_OK && play_ack_after_cleanup && !s_cancel_requested) {
+    if (err == ESP_OK && playback.play_wake_ack && !s_cancel_requested) {
         err = play_wake_ack();
+    } else if (err == ESP_OK && playback.audio_path[0] != '\0' && !s_cancel_requested) {
+        err = download_and_play_pcm(
+            playback.audio_path,
+            DX_LICHUANG_PLAYBACK_DEFAULT_VOLUME,
+            NULL
+        );
     }
     return err;
 }
@@ -630,7 +678,11 @@ static void voice_capture_task(void *argument)
             s_playback_active = true;
             esp_err_t playback_err = s_playback_cancel_requested
                 ? ESP_ERR_INVALID_STATE
-                : download_and_play_audio_test(&audio_request);
+                : download_and_play_pcm(
+                    audio_request.audio_path,
+                    audio_request.volume_percent,
+                    audio_request.test_id
+                );
             if (s_playback_cancel_requested) {
                 mqtt_agent_report_audio_test(audio_request.test_id, "CANCELLED", "Playback cancelled");
             } else if (playback_err == ESP_OK) {
@@ -656,7 +708,11 @@ static void voice_capture_task(void *argument)
                     "Voice test cancelled before recording started"
                 );
             } else {
-                esp_err_t err = capture_and_upload(request.test_session_id, request.asr_only);
+                esp_err_t err = capture_and_upload(
+                    request.test_session_id,
+                    request.asr_only,
+                    request.ci_wake_online_fallback
+                );
                 if (s_cancel_requested) {
                     mqtt_agent_report_voice_test(
                         request.test_session_id,
@@ -681,7 +737,7 @@ static void voice_capture_task(void *argument)
             if (gpio_get_level((gpio_num_t)DX_LICHUANG_RECORD_BUTTON_GPIO) == 0) {
                 s_capture_active = true;
                 s_cancel_requested = false;
-                esp_err_t err = capture_and_upload(NULL, false);
+                esp_err_t err = capture_and_upload(NULL, false, false);
                 s_capture_active = false;
                 if (err != ESP_OK) {
                     ESP_LOGE(TAG, "Voice capture request failed: %s", esp_err_to_name(err));
@@ -698,7 +754,11 @@ static void voice_capture_task(void *argument)
 
 #endif
 
-esp_err_t voice_engine_start_test(const char *test_session_id, bool asr_only)
+esp_err_t voice_engine_start_test(
+    const char *test_session_id,
+    bool asr_only,
+    bool ci_wake_online_fallback
+)
 {
 #if DX_TARGET_BOARD == DX_BOARD_C3_LICHUANG_AUDIO
     if (test_session_id == NULL || test_session_id[0] == '\0' ||
@@ -715,6 +775,7 @@ esp_err_t voice_engine_start_test(const char *test_session_id, bool asr_only)
     voice_test_request_t request = {0};
     strncpy(request.test_session_id, test_session_id, sizeof(request.test_session_id) - 1);
     request.asr_only = asr_only;
+    request.ci_wake_online_fallback = ci_wake_online_fallback;
     s_cancel_requested = false;
     s_capture_pending = true;
     if (xQueueSend(s_voice_request_queue, &request, 0) != pdTRUE) {
@@ -726,6 +787,7 @@ esp_err_t voice_engine_start_test(const char *test_session_id, bool asr_only)
 #else
     (void)test_session_id;
     (void)asr_only;
+    (void)ci_wake_online_fallback;
     return ESP_ERR_NOT_SUPPORTED;
 #endif
 }

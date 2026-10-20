@@ -33,7 +33,9 @@ static const dx_board_profile_t s_board_profile = {
 static const dx_board_profile_t s_board_profile = {
     .name = "Lichuang ESP32-C3 Audio Board",
     .chip = "ESP32-C3",
-    .control_backend = "STM32 UART monitor (RX only)",
+    .control_backend = DX_STM32_CONTROL_STAGE > 0
+        ? "STM32 UART adapter (staged control)"
+        : "STM32 UART monitor (RX only)",
     .voice_control_link = "push-to-talk wake-word validation",
     .voice_audio_link = "ES8311 I2S PCM 16kHz/16bit/mono",
     .local_controller_link = "ESP32-C3 integrated BLE",
@@ -50,8 +52,8 @@ static const dx_board_profile_t s_board_profile = {
     .name = "ESP32-C3 SuperMini",
     .chip = "ESP32-C3",
     .control_backend = DX_ENABLE_PCF8574 ? "3 x PCF8574" : "virtual HAL",
-    .voice_control_link = "CI1302 UART0 115200 8N1",
-    .voice_audio_link = "CI1302 I2S PCM 16kHz/16bit/mono",
+    .voice_control_link = "CI1302 UART events (planned)",
+    .voice_audio_link = "external audio codec required (not fitted)",
     .local_controller_link = "ESP32-C3 integrated BLE",
     .has_audio = false,
     .has_display = false,

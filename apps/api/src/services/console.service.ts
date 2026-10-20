@@ -8,6 +8,7 @@ import { getMqttGatewayStatus } from "./mqttGateway.service.js";
 import { listKnowledgeDocuments } from "./knowledge.service.js";
 import { listProviders } from "./provider.service.js";
 import { getProactiveSettings } from "./proactive.service.js";
+import { getOperationsAuthStatus } from "./operationsAuth.service.js";
 import {
   listBoardProfiles,
   listProductProfiles,
@@ -60,14 +61,14 @@ export async function getDevelopmentConsoleData() {
       {
         id: "P3",
         label: "STM32双向控制",
-        status: "ACTIVE",
-        detail: "命令映射和安全顺序待实现；GPIO18发送保持禁用",
+        status: "PASSED",
+        detail: "真实样机已完成照明、吹风命令下发、状态回传和匹配回执闭环",
       },
       {
         id: "P4",
         label: "在线语音闭环",
         status: "ACTIVE",
-        detail: "ASR/LLM/TTS接口已连通，实板受控播放和整链路待验证",
+        detail: "在线录音、ASR/规则/LLM、STM32回执判定和受控TTS代码已贯通，效果验收由研发人员手动执行",
       },
       {
         id: "P5",
@@ -79,7 +80,13 @@ export async function getDevelopmentConsoleData() {
         id: "P6",
         label: "CI1302离线语音",
         status: "BLOCKED",
-        detail: "后续样板阶段接入，不阻塞当前在线链路研发",
+        detail: "模块未到；真实唤醒率和离线命令阻塞，接口模拟不计入硬件结论",
+      },
+      {
+        id: "P7",
+        label: "生产平台",
+        status: "ACTIVE",
+        detail: "进入生产化准备；本地预生产能力已具备，云端鉴权、独立设备密钥和基础设施待实施",
       },
     ],
   };
@@ -156,7 +163,7 @@ export async function getOperationsConsoleData() {
     productionReadiness: {
       database: "LOCAL_JSON",
       mqtt: "LOCAL_BROKER",
-      authentication: "NOT_CONFIGURED",
+      authentication: getOperationsAuthStatus().readiness,
       deployment: "DEVELOPMENT_ONLY",
     },
   };

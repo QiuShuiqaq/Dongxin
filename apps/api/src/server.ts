@@ -4,17 +4,28 @@ import { z } from 'zod';
 import { ApiError, errorBody } from './http/apiError.js';
 import { registerRoutes } from './routes/index.js';
 import { startMqttGateway, stopMqttGateway } from './services/mqttGateway.service.js';
+import {
+  assertOperationsAuthConfiguration,
+  authenticateOperationsRequest,
+  getOperationsCorsOrigins,
+} from './services/operationsAuth.service.js';
 
 export async function createServer() {
+  assertOperationsAuthConfiguration();
   const server = Fastify({
     logger: true,
     bodyLimit: 10 * 1024 * 1024
   });
 
   await server.register(cors, {
-    origin: true,
+    origin: getOperationsCorsOrigins(),
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-Device-Id', 'X-Request-Id', 'X-Timestamp', 'X-Signature', 'X-Voice-Test-Session-Id']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Device-Id', 'X-Request-Id', 'X-Timestamp', 'X-Signature', 'X-Voice-Test-Session-Id']
+  });
+
+  server.addHook('onRequest', async (request) => {
+    if (isPublicApiRequest(request.method, request.url)) return;
+    authenticateOperationsRequest(request.headers.authorization);
   });
 
   server.addContentTypeParser(
@@ -44,4 +55,16 @@ export async function createServer() {
   });
 
   return server;
+}
+
+function isPublicApiRequest(method: string, url: string): boolean {
+  if (method === 'OPTIONS') return true;
+  const path = url.split('?', 1)[0];
+  return (
+    path === '/' ||
+    path === '/api/health' ||
+    path === '/api/auth/login' ||
+    path === '/api/auth/status' ||
+    path.startsWith('/api/device/v1/')
+  );
 }

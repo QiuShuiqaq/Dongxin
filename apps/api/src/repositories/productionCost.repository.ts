@@ -5,18 +5,18 @@ import { readJsonFile, writeJsonFile } from '../storage.js';
 const defaultAsrOfflinePlans: ProductionCostSettings['asr']['offlinePlans'] = [
   {
     id: 'esp32-c3-ci1302',
-    name: 'ESP32-C3 + CI1302 + 3 x PCF8574',
+    name: 'ESP32-C3 + CI1302 + independent audio codec',
     architecture: 'HYBRID_CLOUD_ASR',
-    chipName: 'ESP32-C3 + CI1302 + 3 x PCF8574',
+    chipName: 'ESP32-C3 + CI1302 + audio codec',
     recognitionType: 'KEYWORD',
     unitHardwareDeltaCny: 0,
     annualServiceCnyPerDevice: 0,
     expectedOfflineRatePercent: 80,
     supportsFreeSpeech: false,
-    maturity: 'MATURE',
+    maturity: 'VALIDATING',
     sourceUrl: null,
     notes:
-      '当前量产基线。CI1302负责唤醒、离线固定命令和音频前端；C3负责在线音频、MQTT、BLE本地控制与全部设备控制；三颗PCF8574提供24路低速IO。实际BOM由东信报价回填。'
+      '当前语音基线。CI1302只负责唤醒和离线固定命令并通过UART上报语义ID；C3通过独立麦克风及音频Codec负责在线音频与TTS播放。首版采用双麦，实际BOM待硬件报价回填。'
   },
   {
     id: 'esp32-s3-ci1302',

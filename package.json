@@ -19,6 +19,8 @@
     "typecheck": "npm run typecheck -ws",
     "lint": "npm run typecheck -ws",
     "verify:consoles": "node scripts/verify-consoles.mjs",
+    "verify:stm32": "node scripts/verify-stm32-firmware.mjs",
+    "auth:hash": "node scripts/hash-operations-password.mjs",
     "format": "prettier --write ."
   },
   "devDependencies": {

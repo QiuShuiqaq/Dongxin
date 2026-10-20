@@ -138,7 +138,7 @@ export async function publishVoiceTestControl(input: {
   testSessionId: string;
   action: 'start' | 'stop';
   recordSeconds: number;
-  mode: 'FULL_PIPELINE' | 'ASR_ONLY';
+  mode: 'FULL_PIPELINE' | 'ASR_ONLY' | 'CI_WAKE_ONLINE_FALLBACK';
 }): Promise<void> {
   const envelope = {
     version: '1.0',
@@ -252,6 +252,9 @@ async function handleUpstreamMessage(topic: string, payload: Buffer): Promise<vo
       return;
     case 'board-test':
       await (await import('./boardLab.service.js')).handleBoardLabDeviceResult(body);
+      return;
+    case 'stm32-link':
+      await (await import('./stm32Link.service.js')).handleStm32LinkReport(body);
       return;
     default:
       throw new Error(`Unsupported upstream message type: ${messageType}`);

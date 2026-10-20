@@ -448,6 +448,13 @@ CONFIG_PARTITION_TABLE_MD5=y
 # end of Partition Table
 
 #
+# Dongxin board configuration
+#
+CONFIG_DX_BOARD_C3_SUPERMINI=y
+# CONFIG_DX_BOARD_C3_LICHUANG_AUDIO is not set
+# end of Dongxin board configuration
+
+#
 # Compiler options
 #
 CONFIG_COMPILER_OPTIMIZATION_DEBUG=y

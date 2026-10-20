@@ -322,7 +322,7 @@ export async function exportBatchTestRun(runId: string, format: string) {
     };
   }
   if (normalized === "csv") {
-    const header = ["序号", "类型", "输入/文件", "期望文本", "实际文本", "期望意图", "实际意图", "通过", "CER", "耗时ms", "费用元", "错误"];
+    const header = ["序号", "类型", "输入/文件", "期望文本", "实际文本", "期望意图", "实际意图", "期望结果类型", "实际结果类型", "期望安全裁决", "实际安全裁决", "判定明细", "通过", "CER", "耗时ms", "费用元", "错误"];
     const rows = run.items.map((item) => [
       item.sequence,
       run.kind,
@@ -331,6 +331,11 @@ export async function exportBatchTestRun(runId: string, format: string) {
       item.actualText ?? "",
       item.expectedIntent ?? "",
       item.actualIntent ?? "",
+      item.expectedResultType ?? "",
+      item.actualResultType ?? "",
+      item.expectedSafetyDecision ?? "",
+      item.actualSafetyDecision ?? "",
+      item.failureReason ?? "",
       item.passed ? "是" : "否",
       item.characterErrorRate ?? "",
       item.latencyMs,
@@ -403,6 +408,16 @@ async function executeBatchItem(
     actualText: null,
     expectedIntent: "expectedIntent" in source ? source.expectedIntent : null,
     actualIntent: null,
+    expectedResultType: "inputText" in source ? source.expectedResultType : null,
+    actualResultType: null,
+    expectedSlots: "inputText" in source ? source.expectedSlots : {},
+    actualSlots: {},
+    expectedSafetyDecision: "inputText" in source ? source.expectedSafetyDecision : null,
+    actualSafetyDecision: null,
+    expectedAllowDeviceAction: "inputText" in source ? source.allowDeviceAction : null,
+    actualDeviceAction: null,
+    evaluationDetails: [],
+    failureReason: null,
     passed: false,
     latencyMs: 0,
     costCny: 0,
@@ -421,11 +436,18 @@ async function executeBatchItem(
         providerId: provider.id,
       });
       if (response.error) throw new Error(response.error);
+      const evaluation = evaluateLlmResult(source, response);
       return {
         ...base,
         actualText: response.aiResult.speak,
         actualIntent: response.aiResult.intent,
-        passed: source.expectedIntent === response.aiResult.intent,
+        actualResultType: response.aiResult.resultType,
+        actualSlots: response.aiResult.slots,
+        actualSafetyDecision: response.safetyResult.decision,
+        actualDeviceAction: response.safetyResult.commands.length > 0,
+        evaluationDetails: evaluation.details,
+        failureReason: evaluation.failureReason,
+        passed: evaluation.passed,
         latencyMs: response.latencyMs,
         costCny: response.usage.costCny ?? 0,
       };
@@ -487,6 +509,75 @@ async function executeBatchItem(
       error: errorMessage(caught),
     };
   }
+}
+
+export function evaluateLlmResult(
+  source: TestCase,
+  response: Awaited<ReturnType<typeof runLlmModuleTest>>,
+): {
+  passed: boolean;
+  failureReason: string | null;
+  details: BatchTestItem["evaluationDetails"];
+} {
+  const details: BatchTestItem["evaluationDetails"] = [];
+  const add = (field: string, passed: boolean, expected: unknown, actual: unknown) => {
+    details.push({
+      field,
+      passed,
+      expected: displayEvaluationValue(expected),
+      actual: displayEvaluationValue(actual),
+    });
+  };
+
+  add("intent", source.expectedIntent === response.aiResult.intent, source.expectedIntent, response.aiResult.intent);
+  if (source.expectedResultType !== null) {
+    add(
+      "resultType",
+      source.expectedResultType === response.aiResult.resultType,
+      source.expectedResultType,
+      response.aiResult.resultType,
+    );
+  }
+  for (const [slot, expected] of Object.entries(source.expectedSlots)) {
+    if (expected === null || expected === undefined) continue;
+    const actual = response.aiResult.slots[slot];
+    add(`slot.${slot}`, actual === expected, expected, actual);
+  }
+  if (source.expectedSafetyDecision !== null) {
+    add(
+      "safetyDecision",
+      source.expectedSafetyDecision === response.safetyResult.decision,
+      source.expectedSafetyDecision,
+      response.safetyResult.decision,
+    );
+  }
+  const actualDeviceAction = response.safetyResult.commands.length > 0;
+  if (source.allowDeviceAction !== null) {
+    add("deviceAction", source.allowDeviceAction === actualDeviceAction, source.allowDeviceAction, actualDeviceAction);
+  }
+
+  const normalizedReply = normalizeText(response.aiResult.speak);
+  for (const keyword of source.requiredKeywords) {
+    add(`required:${keyword}`, normalizedReply.includes(normalizeText(keyword)), keyword, response.aiResult.speak);
+  }
+  for (const keyword of source.forbiddenKeywords) {
+    add(`forbidden:${keyword}`, !normalizedReply.includes(normalizeText(keyword)), `不包含${keyword}`, response.aiResult.speak);
+  }
+
+  const failures = details.filter((item) => !item.passed);
+  return {
+    passed: failures.length === 0,
+    failureReason: failures.length
+      ? failures.map((item) => `${item.field}: 期望${item.expected}，实际${item.actual}`).join("；")
+      : null,
+    details,
+  };
+}
+
+function displayEvaluationValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "空";
+  if (typeof value === "boolean") return value ? "是" : "否";
+  return String(value);
 }
 
 async function persistRun(input: BatchTestRun): Promise<BatchTestRun> {
@@ -656,8 +747,8 @@ function safeFileName(value: string): string {
 }
 
 function buildHtmlReport(run: BatchTestRun): string {
-  const rows = run.items.map((item) => `<tr><td>${item.sequence}</td><td>${escapeHtml(item.inputText)}</td><td>${escapeHtml(item.expectedText ?? item.expectedIntent ?? "-")}</td><td>${escapeHtml(item.actualText ?? item.actualIntent ?? "-")}</td><td>${item.passed ? "通过" : "失败"}</td><td>${item.latencyMs}</td><td>${item.costCny.toFixed(6)}</td><td>${escapeHtml(item.error ?? "")}</td></tr>`).join("");
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${escapeHtml(run.name)}</title><style>body{font-family:Arial,"Microsoft YaHei",sans-serif;margin:32px;color:#24342f}h1{font-size:24px}section{display:flex;gap:28px;margin:20px 0;padding:16px;background:#f3f7f5}strong{display:block;font-size:20px;color:#176b55}table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:8px;border:1px solid #dce5e1;text-align:left;vertical-align:top}th{background:#edf4f1}@media print{body{margin:12mm}}</style></head><body><h1>东信 AI 浴霸研发测试报告</h1><p>${escapeHtml(run.name)} · ${run.kind} · ${escapeHtml(run.providerName)}</p><p>任务编号：${run.id}<br>创建时间：${run.createdAt}<br>完成时间：${run.completedAt ?? "未完成"}</p><section><div>样本<strong>${run.summary.completed}/${run.summary.total}</strong></div><div>通过率<strong>${(run.summary.passRate * 100).toFixed(1)}%</strong></div><div>平均耗时<strong>${run.summary.averageLatencyMs} ms</strong></div><div>总费用<strong>¥${run.summary.totalCostCny.toFixed(6)}</strong></div></section><table><thead><tr><th>#</th><th>输入/文件</th><th>期望</th><th>实际</th><th>结论</th><th>耗时ms</th><th>费用元</th><th>错误</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+  const rows = run.items.map((item) => `<tr><td>${item.sequence}</td><td>${escapeHtml(item.inputText)}</td><td>${escapeHtml(item.expectedText ?? item.expectedIntent ?? "-")}</td><td>${escapeHtml(item.actualText ?? item.actualIntent ?? "-")}</td><td>${item.passed ? "通过" : "失败"}</td><td>${escapeHtml(item.failureReason ?? "-")}</td><td>${item.latencyMs}</td><td>${item.costCny.toFixed(6)}</td><td>${escapeHtml(item.error ?? "")}</td></tr>`).join("");
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${escapeHtml(run.name)}</title><style>body{font-family:Arial,"Microsoft YaHei",sans-serif;margin:32px;color:#24342f}h1{font-size:24px}section{display:flex;gap:28px;margin:20px 0;padding:16px;background:#f3f7f5}strong{display:block;font-size:20px;color:#176b55}table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:8px;border:1px solid #dce5e1;text-align:left;vertical-align:top}th{background:#edf4f1}@media print{body{margin:12mm}}</style></head><body><h1>东信 AI 浴霸研发测试报告</h1><p>${escapeHtml(run.name)} · ${run.kind} · ${escapeHtml(run.providerName)}</p><p>任务编号：${run.id}<br>创建时间：${run.createdAt}<br>完成时间：${run.completedAt ?? "未完成"}</p><section><div>样本<strong>${run.summary.completed}/${run.summary.total}</strong></div><div>通过率<strong>${(run.summary.passRate * 100).toFixed(1)}%</strong></div><div>平均耗时<strong>${run.summary.averageLatencyMs} ms</strong></div><div>总费用<strong>¥${run.summary.totalCostCny.toFixed(6)}</strong></div></section><table><thead><tr><th>#</th><th>输入/文件</th><th>期望</th><th>实际</th><th>结论</th><th>判定明细</th><th>耗时ms</th><th>费用元</th><th>错误</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
 }
 
 function escapeHtml(value: string): string {

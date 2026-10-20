@@ -18,13 +18,17 @@ import { registerVoiceTestRoutes } from './voiceTests.routes.js';
 import { registerVoiceModuleTestRoutes } from './voiceModuleTests.routes.js';
 import { registerConsoleRoutes } from './consoles.routes.js';
 import { registerAiTestingRoutes } from './aiTesting.routes.js';
+import { registerAuthRoutes } from './auth.routes.js';
 import { registerBoardLabRoutes } from './boardLab.routes.js';
+import { registerStm32LinkRoutes } from './stm32Link.routes.js';
 
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await registerHealthRoutes(server);
+  await registerAuthRoutes(server);
   await registerConsoleRoutes(server);
   await registerAiTestingRoutes(server);
   await registerBoardLabRoutes(server);
+  await registerStm32LinkRoutes(server);
   await registerHardwareConfigRoutes(server);
   await registerBootstrapRoutes(server);
   await registerProvidersRoutes(server);

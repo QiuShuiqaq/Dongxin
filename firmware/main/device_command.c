@@ -7,7 +7,10 @@
 #include "app_config.h"
 #include "command_queue.h"
 #include "device_command.h"
+#include "sample_uart_monitor.h"
 #include "uart_bridge.h"
+
+_Static_assert(DX_STM32_FRAME_SIZE == DX_MCU_FRAME_SIZE, "STM32 and legacy frames must both be 32 bytes");
 
 static const char *TAG = "DEVICE_COMMAND";
 static const size_t COMMAND_ID_SIZE = 64;
@@ -69,7 +72,60 @@ esp_err_t device_command_execute_json(
             break;
         }
 
-        if (uart_bridge_is_ready()) {
+        if (sample_uart_monitor_is_control_ready()) {
+            uint8_t frame[DX_STM32_FRAME_SIZE] = {0};
+            esp_err_t err = sample_uart_monitor_execute_action(
+                action.code,
+                action.value,
+                action.target_temperature,
+                action.duration_minutes,
+                frame
+            );
+            if (frame[0] != 0U) {
+                frame_to_hex(frame, out_result->mcu_frame);
+            }
+            strcpy(out_result->execution_path, "STM32_UART_VERIFIED_ACK");
+            if (err != ESP_OK) {
+                if (err == ESP_ERR_NOT_SUPPORTED || err == ESP_ERR_INVALID_ARG) {
+                    out_result->status = "rejected";
+                    snprintf(
+                        out_result->error_code,
+                        sizeof(out_result->error_code),
+                        "%s",
+                        err == ESP_ERR_NOT_SUPPORTED
+                            ? "STM32_STAGE_LOCKED_OR_UNSUPPORTED"
+                            : "INVALID_STM32_ACTION"
+                    );
+                    snprintf(
+                        out_result->message,
+                        sizeof(out_result->message),
+                        "%s",
+                        err == ESP_ERR_NOT_SUPPORTED
+                            ? "当前固件控制阶段未开放该动作，或样机协议不支持"
+                            : "动作参数无法映射到STM32协议"
+                    );
+                } else if (err == ESP_ERR_TIMEOUT) {
+                    out_result->status = "timeout";
+                    strcpy(out_result->error_code, "STM32_ACK_TIMEOUT");
+                    strcpy(out_result->message, "命令已发送，但2秒内未收到STM32匹配回执");
+                } else if (err == ESP_ERR_INVALID_RESPONSE) {
+                    out_result->status = "failed";
+                    strcpy(out_result->error_code, "STM32_STATE_MISMATCH");
+                    strcpy(out_result->message, "STM32已回传，但实际状态与命令不一致");
+                } else {
+                    out_result->status = "failed";
+                    strcpy(out_result->error_code, "STM32_UART_WRITE_FAILED");
+                    snprintf(
+                        out_result->message,
+                        sizeof(out_result->message),
+                        "%s",
+                        esp_err_to_name(err)
+                    );
+                }
+                break;
+            }
+            strcpy(out_result->message, "STM32匹配回执已确认");
+        } else if (uart_bridge_is_ready()) {
             uint8_t frame[DX_MCU_FRAME_SIZE];
             esp_err_t err = uart_bridge_send_action_with_frame(&action, frame);
             if (err != ESP_OK) {

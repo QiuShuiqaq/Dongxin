@@ -47,7 +47,7 @@
 #define DX_DEVICE_MODEL "DX-AI-BATH-C3-SUPERMINI"
 #endif
 
-#define DX_FIRMWARE_VERSION "0.6.0-stm32-monitor"
+#define DX_FIRMWARE_VERSION "1.1.0-online-voice"
 #define DX_PROTOCOL_VERSION "1.0"
 
 /* Feature switches for the staged board bring-up. */
@@ -147,10 +147,13 @@
 #define DX_VOICE_HTTP_TIMEOUT_MS 45000
 #define DX_VOICE_PCM_URL \
     DX_GATEWAY_BASE_URL "/api/device/v1/voice-pcm?deviceId=" DX_DEVICE_ID \
-    "&sampleRate=16000&bitsPerSample=16&channels=1&requireWakeWord=1&synthesizeSpeech=0&testMode=FULL_PIPELINE"
+    "&sampleRate=16000&bitsPerSample=16&channels=1&requireWakeWord=1&synthesizeSpeech=1&testMode=FULL_PIPELINE"
 #define DX_VOICE_PCM_ASR_ONLY_URL \
     DX_GATEWAY_BASE_URL "/api/device/v1/voice-pcm?deviceId=" DX_DEVICE_ID \
     "&sampleRate=16000&bitsPerSample=16&channels=1&requireWakeWord=0&synthesizeSpeech=0&testMode=ASR_ONLY"
+#define DX_VOICE_PCM_CI_WAKE_FALLBACK_URL \
+    DX_GATEWAY_BASE_URL "/api/device/v1/voice-pcm?deviceId=" DX_DEVICE_ID \
+    "&sampleRate=16000&bitsPerSample=16&channels=1&requireWakeWord=0&synthesizeSpeech=1&testMode=FULL_PIPELINE"
 
 /* Retired V0.2 MCU simulator protocol. Do not use these pins with the STM32
  * sample; its real protocol will be implemented in a separate adapter. */
@@ -164,10 +167,22 @@
 #define DX_UART_BAUD_RATE 115200
 #define DX_MCU_STATE_QUERY_INTERVAL_SECONDS 30
 
-/* Existing Dongxin STM32 sample, receive-only bring-up on the Lichuang board.
- * GPIO18 is reserved for a future reviewed TX path and is not configured. */
-#define DX_SAMPLE_UART_TX_RESERVED_GPIO 18
+/* Existing Dongxin STM32 sample adapter. Control is deliberately enabled in
+ * stages so a newly flashed board cannot energize every load at once.
+ *   0: receive only
+ *   1: light commands plus safe shutdown commands
+ *   2: light, fan, ventilation and swing
+ *   3: all protocol-supported loads, including heating
+ */
+#define DX_SAMPLE_UART_TX_GPIO 18
 #define DX_SAMPLE_UART_RX_GPIO 19
 #define DX_SAMPLE_UART_BAUD_RATE 115200
+#define DX_ENABLE_STM32_PROTOCOL_SELF_TEST 1
+#if DX_TARGET_BOARD == DX_BOARD_C3_LICHUANG_AUDIO
+#define DX_STM32_CONTROL_STAGE 3
+#else
+#define DX_STM32_CONTROL_STAGE 0
+#endif
+#define DX_STM32_ACK_TIMEOUT_MS 2000
 
 #endif

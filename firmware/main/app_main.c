@@ -95,17 +95,17 @@ void app_main(void)
     device_state_init();
     ESP_LOGI(TAG, "[3/8] 设备状态管理初始化完成");
 
-    // 4. 研发模拟控制器与统一命令队列（不驱动当前STM32样机）
+    // 4. 统一命令队列；STM32样机命令由独立适配器执行
     ESP_ERROR_CHECK(device_controller_init());
     ESP_ERROR_CHECK(command_queue_init());
-    ESP_LOGI(TAG, "[4/9] C3命令队列初始化完成（当前不控制STM32负载）");
+    ESP_LOGI(TAG, "[4/9] C3统一命令队列初始化完成");
 
-    // 5. 现有STM32样机只读监听；TX未配置，禁止发送
+    // 5. 现有STM32样机分级UART适配器
     ret = sample_uart_monitor_init();
     if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "东信样机被动串口监听未启动: %s", esp_err_to_name(ret));
+        ESP_LOGW(TAG, "东信样机串口适配器未启动: %s", esp_err_to_name(ret));
     }
-    ESP_LOGI(TAG, "[5/9] STM32串口只读监听初始化完成");
+    ESP_LOGI(TAG, "[5/9] STM32串口适配器初始化完成");
 
     // 6. WiFi连接初始化
 #if DX_ENABLE_WIFI

@@ -73,6 +73,73 @@ esp_err_t mqtt_agent_report_state(void)
     return publish_envelope("state", data, 1, true);
 }
 
+esp_err_t mqtt_agent_report_stm32_link(
+    const char *direction,
+    const char *event_type,
+    const uint8_t *frame,
+    size_t frame_length,
+    const dx_stm32_status_t *status,
+    bool valid,
+    const char *result,
+    uint32_t rejected_frames,
+    uint32_t discarded_bytes
+)
+{
+    if (direction == NULL || event_type == NULL ||
+        frame_length > DX_STM32_FRAME_SIZE ||
+        (frame_length > 0U && frame == NULL)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    cJSON *data = cJSON_CreateObject();
+    if (data == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    cJSON_AddStringToObject(data, "direction", direction);
+    cJSON_AddStringToObject(data, "eventType", event_type);
+    cJSON_AddBoolToObject(data, "valid", valid);
+    cJSON_AddStringToObject(data, "result", result == NULL ? "" : result);
+    cJSON_AddNumberToObject(data, "rejectedFrames", rejected_frames);
+    cJSON_AddNumberToObject(data, "discardedBytes", discarded_bytes);
+
+    char frame_hex[DX_STM32_FRAME_SIZE * 3U] = {0};
+    for (size_t index = 0; index < frame_length; index++) {
+        snprintf(
+            &frame_hex[index * 3U],
+            sizeof(frame_hex) - index * 3U,
+            index + 1U == frame_length ? "%02X" : "%02X ",
+            frame[index]
+        );
+    }
+    cJSON_AddStringToObject(data, "frame", frame_hex);
+
+    if (status != NULL) {
+        cJSON_AddNumberToObject(data, "command", status->command);
+        cJSON_AddNumberToObject(data, "value", status->value);
+        cJSON *parsed = cJSON_CreateObject();
+        if (parsed != NULL) {
+            cJSON_AddNumberToObject(parsed, "temperatureCelsius", status->temperature_celsius);
+            cJSON_AddNumberToObject(parsed, "remainingMinutes", status->remaining_minutes);
+            cJSON_AddBoolToObject(parsed, "light", status->light);
+            cJSON_AddBoolToObject(parsed, "ventilation", status->ventilation);
+            cJSON_AddBoolToObject(parsed, "fan", status->fan);
+            cJSON_AddStringToObject(
+                parsed,
+                "heater",
+                status->heater_strong ? "strong" : (status->heater_weak ? "weak" : "off")
+            );
+            cJSON_AddBoolToObject(parsed, "swing", status->swing);
+            cJSON_AddBoolToObject(parsed, "dry", status->dry);
+            cJSON_AddBoolToObject(parsed, "networkControlEnabled", status->network_control_enabled);
+            cJSON_AddItemToObject(data, "state", parsed);
+        }
+    } else if (frame_length >= 5U) {
+        cJSON_AddNumberToObject(data, "command", frame[3]);
+        cJSON_AddNumberToObject(data, "value", frame[4]);
+    }
+    return publish_envelope("stm32-link", data, 1, false);
+}
+
 esp_err_t mqtt_agent_report_voice_test(
     const char *test_session_id,
     const char *status,
@@ -280,7 +347,14 @@ static bool handle_voice_test_control(const cJSON *data)
     if (strcmp(action->valuestring, "start") == 0) {
         const bool asr_only = cJSON_IsString(mode) && mode->valuestring != NULL &&
             strcmp(mode->valuestring, "ASR_ONLY") == 0;
-        err = voice_engine_start_test(session_id->valuestring, asr_only);
+        const bool ci_wake_online_fallback = cJSON_IsString(mode) &&
+            mode->valuestring != NULL &&
+            strcmp(mode->valuestring, "CI_WAKE_ONLINE_FALLBACK") == 0;
+        err = voice_engine_start_test(
+            session_id->valuestring,
+            asr_only,
+            ci_wake_online_fallback
+        );
     } else if (strcmp(action->valuestring, "stop") == 0) {
         err = voice_engine_stop_test(session_id->valuestring);
     } else {
@@ -465,7 +539,26 @@ static void publish_registration(void)
         "stm32UartMonitor",
         DX_ENABLE_SAMPLE_UART_MONITOR
     );
-    cJSON_AddBoolToObject(capabilities, "stm32UartControl", false);
+    cJSON_AddBoolToObject(
+        capabilities,
+        "stm32UartControl",
+        DX_ENABLE_SAMPLE_UART_MONITOR && DX_STM32_CONTROL_STAGE > 0
+    );
+    cJSON_AddBoolToObject(
+        capabilities,
+        "stm32LightControl",
+        DX_ENABLE_SAMPLE_UART_MONITOR && DX_STM32_CONTROL_STAGE >= 1
+    );
+    cJSON_AddBoolToObject(
+        capabilities,
+        "stm32AirControl",
+        DX_ENABLE_SAMPLE_UART_MONITOR && DX_STM32_CONTROL_STAGE >= 2
+    );
+    cJSON_AddBoolToObject(
+        capabilities,
+        "stm32HeaterControl",
+        DX_ENABLE_SAMPLE_UART_MONITOR && DX_STM32_CONTROL_STAGE >= 3
+    );
     cJSON_AddBoolToObject(
         capabilities,
         "virtualHal",

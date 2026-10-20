@@ -12,10 +12,12 @@ import {
 } from '../services/deviceAccess.service.js';
 import { runVoicePipeline } from '../services/voicePipeline.service.js';
 import {
+  archiveVoiceTestPcm,
   completeVoiceTest,
   failVoiceTest,
   markVoiceTestProcessing
 } from '../services/voiceTest.service.js';
+import { getDeviceVoiceReplyPcm } from '../services/deviceAudioAsset.service.js';
 
 const DeviceIdQuerySchema = z.object({
   deviceId: z.string().min(1)
@@ -39,6 +41,10 @@ const DevicePcmQuerySchema = z.object({
   requireWakeWord: z.enum(['0', '1']).default('1').transform((value) => value === '1'),
   synthesizeSpeech: z.enum(['0', '1']).default('0').transform((value) => value === '1'),
   testMode: z.enum(['FULL_PIPELINE', 'ASR_ONLY']).default('FULL_PIPELINE')
+});
+
+const VoiceReplyParamsSchema = z.object({
+  id: z.string().uuid()
 });
 
 export async function registerDeviceAccessRoutes(server: FastifyInstance): Promise<void> {
@@ -92,7 +98,10 @@ export async function registerDeviceAccessRoutes(server: FastifyInstance): Promi
       query.channels
     );
     try {
-      if (testSessionId) await markVoiceTestProcessing(testSessionId);
+      if (testSessionId) {
+        await markVoiceTestProcessing(testSessionId);
+        await archiveVoiceTestPcm(testSessionId, wav);
+      }
       const result = await runVoicePipeline({
         deviceId: query.deviceId,
         inputSource: 'DEVICE_AUDIO',
@@ -113,6 +122,19 @@ export async function registerDeviceAccessRoutes(server: FastifyInstance): Promi
       if (testSessionId) await failVoiceTest(testSessionId, error);
       throw error;
     }
+  });
+
+  server.get('/api/device/v1/voice-replies/:id/pcm', async (request, reply) => {
+    const { id } = VoiceReplyParamsSchema.parse(request.params);
+    const deviceId = readHeader(request, 'x-device-id');
+    const pcm = getDeviceVoiceReplyPcm(id, deviceId);
+    return reply
+      .header('Cache-Control', 'private, no-store')
+      .header('X-Audio-Sample-Rate', '16000')
+      .header('X-Audio-Bits-Per-Sample', '16')
+      .header('X-Audio-Channels', '1')
+      .type('application/octet-stream')
+      .send(pcm);
   });
 
   server.get('/api/device/v1/commands/poll', async (request) => {

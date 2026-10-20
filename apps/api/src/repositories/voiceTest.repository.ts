@@ -19,12 +19,17 @@ export async function createVoiceTestSessionRecord(input: {
   deviceId: string;
   recordSeconds: number;
   mode: VoiceTestSession["mode"];
+  asrDatasetId?: string | null;
+  expectedText?: string | null;
 }): Promise<VoiceTestSession> {
   const now = new Date().toISOString();
   const session = VoiceTestSessionSchema.parse({
     id: randomUUID(),
     deviceId: input.deviceId,
     mode: input.mode,
+    asrDatasetId: input.asrDatasetId ?? null,
+    expectedText: input.expectedText ?? null,
+    capturedDatasetItemId: null,
     status: "CREATED",
     recordSeconds: input.recordSeconds,
     muted: true,
@@ -49,6 +54,7 @@ export async function patchVoiceTestSession(
     startedAt: string | null;
     completedAt: string | null;
     result: VoicePipelineResponse | null;
+    capturedDatasetItemId: string | null;
   }>,
 ): Promise<VoiceTestSession | null> {
   return mutate(async (sessions) => {

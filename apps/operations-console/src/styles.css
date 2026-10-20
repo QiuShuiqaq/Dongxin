@@ -118,6 +118,21 @@ body {
   padding: 12px 8px 2px;
   border-top: 1px solid #2b3b4b;
 }
+.ops-logout {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  color: #8fa4b7;
+  background: transparent;
+  cursor: pointer;
+}
+.ops-logout:hover {
+  color: #fff;
+}
 .avatar {
   display: grid;
   place-items: center;
@@ -143,6 +158,53 @@ body {
 }
 .ops-main {
   min-width: 0;
+}
+.ops-login-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: #edf1f4;
+}
+.ops-login-panel {
+  width: min(400px, 100%);
+  padding: 30px;
+  background: #fff;
+  border: 1px solid #d9e0e6;
+  border-radius: 6px;
+  box-shadow: 0 16px 40px rgb(37 52 67 / 10%);
+}
+.ops-login-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid #e5e9ed;
+}
+.ops-login-brand h1 {
+  margin: 0;
+  color: #253443;
+  font-size: 19px;
+  letter-spacing: 0;
+}
+.ops-login-brand span {
+  display: block;
+  margin-top: 4px;
+  color: #788592;
+  font-size: 12px;
+}
+.ops-login-panel form {
+  display: grid;
+  gap: 10px;
+  padding-top: 22px;
+}
+.ops-login-panel form label {
+  color: #465461;
+  font-size: 12px;
+  font-weight: 600;
+}
+.ops-login-panel form button {
+  margin-top: 10px;
 }
 .ops-header {
   display: flex;

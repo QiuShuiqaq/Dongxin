@@ -1,0 +1,1 @@
+case_id,dataset_version,category,question,product_model,source_document_id,source_document_version,expected_section,required_facts,forbidden_facts,no_source_policy,safety_question,expected_answer_min_chars,expected_answer_max_chars,review_status,actual_document_ids,actual_answer,fact_match,unsafe_omission,hallucination,passed,latency_ms,cost_cny,run_id,reviewer,notes

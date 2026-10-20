@@ -240,6 +240,17 @@ export const TestCaseSchema = z.object({
   category: z.string().min(1),
   inputText: z.string().min(1),
   expectedIntent: DeviceIntentSchema.nullable(),
+  expectedResultType: ResultTypeSchema.nullable().default(null),
+  expectedSlots: z
+    .object({
+      temperature: z.number().int().nullable().optional(),
+      durationMinutes: z.number().int().positive().nullable().optional(),
+    })
+    .default({}),
+  expectedSafetyDecision: SafetyDecisionSchema.nullable().default(null),
+  requiredKeywords: z.array(z.string().min(1)).default([]),
+  forbiddenKeywords: z.array(z.string().min(1)).default([]),
+  allowDeviceAction: z.boolean().nullable().default(null),
   riskLevel: z.enum(["LOW", "MEDIUM", "HIGH"]),
   notes: z.string().optional(),
 });
@@ -295,15 +306,27 @@ export const CreateTestCaseRequestSchema = z.object({
   category: z.string().min(1),
   inputText: z.string().min(1),
   expectedIntent: DeviceIntentSchema.nullable().default(null),
+  expectedResultType: ResultTypeSchema.nullable().default(null),
+  expectedSlots: TestCaseSchema.shape.expectedSlots.default({}),
+  expectedSafetyDecision: SafetyDecisionSchema.nullable().default(null),
+  requiredKeywords: z.array(z.string().min(1)).default([]),
+  forbiddenKeywords: z.array(z.string().min(1)).default([]),
+  allowDeviceAction: z.boolean().nullable().default(null),
   riskLevel: z.enum(["LOW", "MEDIUM", "HIGH"]).default("LOW"),
   notes: z.string().optional(),
 });
-export type CreateTestCaseRequest = z.infer<typeof CreateTestCaseRequestSchema>;
+export type CreateTestCaseRequest = z.input<typeof CreateTestCaseRequestSchema>;
 
 export const UpdateTestCaseRequestSchema = z.object({
   category: z.string().min(1).optional(),
   inputText: z.string().min(1).optional(),
   expectedIntent: DeviceIntentSchema.nullable().optional(),
+  expectedResultType: ResultTypeSchema.nullable().optional(),
+  expectedSlots: TestCaseSchema.shape.expectedSlots.optional(),
+  expectedSafetyDecision: SafetyDecisionSchema.nullable().optional(),
+  requiredKeywords: z.array(z.string().min(1)).optional(),
+  forbiddenKeywords: z.array(z.string().min(1)).optional(),
+  allowDeviceAction: z.boolean().nullable().optional(),
   riskLevel: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
   notes: z.string().optional(),
 });
@@ -466,6 +489,25 @@ export const BatchTestItemSchema = z.object({
   actualText: z.string().nullable(),
   expectedIntent: DeviceIntentSchema.nullable(),
   actualIntent: DeviceIntentSchema.nullable(),
+  expectedResultType: ResultTypeSchema.nullable().default(null),
+  actualResultType: ResultTypeSchema.nullable().default(null),
+  expectedSlots: TestCaseSchema.shape.expectedSlots.default({}),
+  actualSlots: TestCaseSchema.shape.expectedSlots.default({}),
+  expectedSafetyDecision: SafetyDecisionSchema.nullable().default(null),
+  actualSafetyDecision: SafetyDecisionSchema.nullable().default(null),
+  expectedAllowDeviceAction: z.boolean().nullable().default(null),
+  actualDeviceAction: z.boolean().nullable().default(null),
+  evaluationDetails: z
+    .array(
+      z.object({
+        field: z.string(),
+        passed: z.boolean(),
+        expected: z.string(),
+        actual: z.string(),
+      }),
+    )
+    .default([]),
+  failureReason: z.string().nullable().default(null),
   passed: z.boolean(),
   latencyMs: z.number().int().nonnegative(),
   costCny: z.number().nonnegative(),
@@ -544,6 +586,7 @@ export const DeviceEventTypeSchema = z.enum([
   "FAULT",
   "VOICE",
   "COMMAND_RESULT",
+  "PROTOCOL_TRACE",
 ]);
 export type DeviceEventType = z.infer<typeof DeviceEventTypeSchema>;
 
@@ -830,7 +873,11 @@ export const VoicePipelineRequestSchema = z
   });
 export type VoicePipelineRequest = z.infer<typeof VoicePipelineRequestSchema>;
 
-export const VoiceModuleTestModeSchema = z.enum(["FULL_PIPELINE", "ASR_ONLY"]);
+export const VoiceModuleTestModeSchema = z.enum([
+  "FULL_PIPELINE",
+  "ASR_ONLY",
+  "CI_WAKE_ONLINE_FALLBACK",
+]);
 export type VoiceModuleTestMode = z.infer<typeof VoiceModuleTestModeSchema>;
 
 export const VoicePipelineResponseSchema = z.object({
@@ -848,6 +895,7 @@ export const VoicePipelineResponseSchema = z.object({
   cost: VoicePipelineCostSchema,
   ttsAudioBase64: z.string().nullable(),
   ttsAudioMimeType: z.string().nullable(),
+  ttsAudioPath: z.string().nullable().default(null),
 });
 export type VoicePipelineResponse = z.infer<typeof VoicePipelineResponseSchema>;
 
@@ -870,6 +918,9 @@ export const VoiceTestSessionSchema = z.object({
   id: z.string().uuid(),
   deviceId: z.string().min(1),
   mode: VoiceModuleTestModeSchema.default("FULL_PIPELINE"),
+  asrDatasetId: z.string().uuid().nullable().default(null),
+  expectedText: z.string().min(1).max(500).nullable().default(null),
+  capturedDatasetItemId: z.string().uuid().nullable().default(null),
   status: VoiceTestSessionStatusSchema,
   recordSeconds: z.number().int().min(1).max(30),
   muted: z.literal(true),
@@ -1139,7 +1190,9 @@ export type IoExpansionConfig = z.infer<typeof IoExpansionConfigSchema>;
 export const VoiceHardwareLinkSchema = z.object({
   controlTransport: z.literal("UART0"),
   controlBaudRate: z.number().int().positive().max(3_000_000),
-  audioTransport: z.literal("I2S_PCM"),
+  audioTransport: z.literal("C3_CODEC_I2S"),
+  audioOwner: z.literal("ESP32_C3"),
+  microphoneTopology: z.literal("DUAL_MIC"),
   audioSampleRateHz: z.literal(16_000),
   audioBitsPerSample: z.literal(16),
   audioChannels: z.literal(1),

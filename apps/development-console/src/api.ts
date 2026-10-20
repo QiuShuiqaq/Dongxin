@@ -3,6 +3,7 @@ import type {
   AsrDataset,
   BatchTestRun,
   BoardProfile,
+  Ci1302EventSimulationResponse,
   DeviceCommandRecord,
   DeviceExecutionTrace,
   DeviceProfile,
@@ -12,6 +13,7 @@ import type {
   ProviderDiagnosticResult,
   ProviderSecretStatus,
   TestSetSummary,
+  TestSet,
   VoiceTestSession,
   VoiceProfile,
 } from "@dongxin/shared";
@@ -24,6 +26,7 @@ export type {
   ProviderDiagnosticResult,
   ProviderSecretStatus,
   TestSetSummary,
+  Ci1302EventSimulationResponse,
 };
 
 export interface DevelopmentGate {
@@ -42,6 +45,42 @@ export interface DevelopmentConsoleData {
   traces: DeviceExecutionTrace[];
   mqtt: { enabled: boolean; connected: boolean; brokerUrl: string };
   gates: DevelopmentGate[];
+}
+
+export interface Stm32LinkEvent {
+  id: string;
+  deviceId: string;
+  type: "PROTOCOL_TRACE";
+  createdAt: string;
+  payload: {
+    direction: "RX" | "TX";
+    eventType:
+      | "STATUS"
+      | "NETWORK_STATUS_REQUEST"
+      | "COMMAND"
+      | "COMMAND_ACK"
+      | "COMMAND_ACK_MISMATCH"
+      | "COMMAND_TIMEOUT"
+      | "FRAME_REJECTED";
+    valid: boolean;
+    result: string;
+    frame: string;
+    command?: number;
+    value?: number;
+    rejectedFrames: number;
+    discardedBytes: number;
+    state?: {
+      temperatureCelsius: number;
+      remainingMinutes: number;
+      light: boolean;
+      ventilation: boolean;
+      fan: boolean;
+      heater: "off" | "weak" | "strong";
+      swing: boolean;
+      dry: boolean;
+      networkControlEnabled: boolean;
+    };
+  };
 }
 
 export interface LocalSerialPort {
@@ -219,6 +258,15 @@ export async function getDeviceState(deviceId: string): Promise<DeviceState> {
   return request(`/api/devices/${encodeURIComponent(deviceId)}/state`);
 }
 
+export async function getStm32LinkEvents(
+  deviceId: string,
+  limit = 100,
+): Promise<Stm32LinkEvent[]> {
+  return request(
+    `/api/development/stm32-link/${encodeURIComponent(deviceId)}?limit=${limit}`,
+  );
+}
+
 export async function getDeviceCommands(
   deviceId: string,
 ): Promise<DeviceCommandRecord[]> {
@@ -238,11 +286,13 @@ export async function sendDeviceCommand(
 
 export async function startVoiceTest(
   deviceId: string,
-  mode: "FULL_PIPELINE" | "ASR_ONLY" = "FULL_PIPELINE",
+  mode: "FULL_PIPELINE" | "ASR_ONLY" | "CI_WAKE_ONLINE_FALLBACK" =
+    "FULL_PIPELINE",
+  capture?: { asrDatasetId: string; expectedText: string },
 ): Promise<VoiceTestSession> {
   return request("/api/development/voice-tests", {
     method: "POST",
-    body: JSON.stringify({ deviceId, mode }),
+    body: JSON.stringify({ deviceId, mode, ...capture }),
   });
 }
 
@@ -259,6 +309,20 @@ export async function getVoiceTest(sessionId: string): Promise<VoiceTestSession>
 
 export async function getVoiceTests(deviceId: string): Promise<VoiceTestSession[]> {
   return request(`/api/development/voice-tests?deviceId=${encodeURIComponent(deviceId)}`);
+}
+
+export async function simulateCi1302Event(input: {
+  deviceId: string;
+  productProfileId: string;
+  voiceProfileId: string;
+  eventType: "OFFLINE_COMMAND" | "OFFLINE_MISS";
+  semanticId?: number | null;
+  networkOnline: boolean;
+}): Promise<Ci1302EventSimulationResponse> {
+  return request("/api/hardware-config/ci1302/events/simulate", {
+    method: "POST",
+    body: JSON.stringify({ ...input, applyToDevice: false }),
+  });
 }
 
 export async function getLocalAgentHealth(): Promise<LocalAgentHealth> {
@@ -393,6 +457,18 @@ export async function diagnoseAiProvider(providerId: string): Promise<ProviderDi
 
 export async function getTestSetSummaries(): Promise<TestSetSummary[]> {
   return request("/api/test-sets");
+}
+
+export async function importTestSetMarkdown(input: {
+  name: string;
+  description?: string;
+  markdown: string;
+  kind?: "SIMPLE" | "COMPLEX" | "CUSTOM";
+}): Promise<TestSet> {
+  return request("/api/test-sets/import-md", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export async function getAsrDatasets(): Promise<AsrDataset[]> {

@@ -287,11 +287,11 @@
         "status": "PLANNED"
       },
       {
-        "id": "dev-ci-i2s",
+        "id": "dev-c3-codec-i2s",
         "bus": "I2S",
-        "name": "CI1302音频",
-        "endpoint": "引脚待原理图冻结",
-        "parameters": "16kHz / 16bit / mono PCM",
+        "name": "C3独立在线音频",
+        "endpoint": "C3 ↔ 独立音频Codec；SuperMini未装配",
+        "parameters": "16kHz / 16bit / mono PCM；不经过CI1302",
         "status": "PLANNED"
       }
     ],
@@ -314,7 +314,7 @@
     "executionMode": "STM32_UART_MONITOR",
     "loadVoltageScope": "LOGIC_ONLY",
     "flashSizeMB": 8,
-    "summary": "当前COM5音频实板。GPIO19已只读接收东信STM32样机状态帧；GPIO18发送保持禁用。用于在线语音和STM32协议适配研发，不直接控制浴霸负载。",
+    "summary": "当前COM5音频实板。GPIO19状态接收已验证；GPIO18分级控制固件已完成构建，待接线后先验证照明命令和真实回执。用于在线语音和STM32协议适配研发。",
     "pins": [
       {
         "id": "lc-3v3",
@@ -562,14 +562,14 @@
         "side": "RIGHT",
         "label": "GPIO18",
         "gpio": 18,
-        "signal": "STM32_UART_TX_RESERVED",
+        "signal": "STM32_UART_TX",
         "direction": "OUTPUT",
         "electrical": "3.3V TTL",
         "target": "STM32 WIFI_RX",
-        "bootConstraint": "当前禁止发送，完成协议和安全评审后再接入",
-        "defaultLevel": "HIGH_Z",
-        "status": "RESERVED",
-        "evidence": "当前固件未配置TX"
+        "bootConstraint": "仅发送已映射的32字节协议帧；当前固件只开放照明和安全关闭类命令",
+        "defaultLevel": "HIGH",
+        "status": "ASSIGNED",
+        "evidence": "0.8.0固件已构建，等待接线实测"
       },
       {
         "id": "lc-gpio19",
@@ -581,7 +581,7 @@
         "direction": "INPUT",
         "electrical": "3.3V TTL",
         "target": "STM32 WIFI_TX",
-        "bootConstraint": "只读监听，不得输入5V",
+        "bootConstraint": "不得输入5V",
         "defaultLevel": "HIGH_Z",
         "status": "VERIFIED",
         "evidence": "已接收并校验真实32字节状态帧"
@@ -639,9 +639,9 @@
         "id": "lc-stm32-uart",
         "bus": "UART",
         "name": "东信样机协议",
-        "endpoint": "GPIO19 ← STM32 WIFI_TX；GPIO18 → STM32 WIFI_RX（禁用）",
-        "parameters": "115200bps 8N1；32字节固定帧；当前只读",
-        "status": "VERIFIED"
+        "endpoint": "GPIO19 ← STM32 WIFI_TX；GPIO18 → STM32 WIFI_RX",
+        "parameters": "115200bps 8N1；32字节固定帧；TX/RX匹配回执",
+        "status": "ASSIGNED"
       },
       {
         "id": "lc-wireless",
@@ -659,9 +659,10 @@
       "温湿度、六轴和罗盘已取得实板采样；触摸控制器已响应，按下坐标仍需人工操作确认",
       "BLE扫描与WiFi共存策略尚未验证，当前实验室不开放主动扫描",
       "立创开发板实测结果不等于量产板220V负载验收通过",
-      "STM32命令发送尚未启用，当前只能监听样机状态"
+      "GPIO18发送固件已构建但尚未完成实机验证，当前只开放照明和安全关闭类命令",
+      "风路、摆风和取暖命令仍由固件阶段门禁锁定"
     ],
-    "updatedAt": "2026-09-23T00:00:00.000Z"
+    "updatedAt": "2026-10-20T08:00:00.000Z"
   },
   {
     "id": "dx-ai-01-mainboard-rev-a",

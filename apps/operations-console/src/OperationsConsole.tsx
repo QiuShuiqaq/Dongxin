@@ -4,8 +4,10 @@ import {
   CloudServerOutlined,
   DatabaseOutlined,
   DesktopOutlined,
+  LogoutOutlined,
   ReloadOutlined,
   SettingOutlined,
+  UserOutlined,
 } from "@ant-design/icons";
 import type {
   DeviceCommandRecord,
@@ -32,14 +34,21 @@ import {
   Tag,
   Tooltip,
 } from "antd";
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
+  AuthenticationRequiredError,
   createKnowledgeDocument,
+  getOperationsSession,
   getOperationsConsole,
+  loginOperations,
+  logoutOperations,
   updateProactiveSettings,
 } from "./api";
-import type { OperationsConsoleData } from "./api";
+import type {
+  OperationsConsoleData,
+  OperationsUser,
+} from "./api";
 
 type Section =
   "overview" | "devices" | "knowledge" | "ai" | "records" | "system";
@@ -75,6 +84,8 @@ export default function OperationsConsole() {
   const { message } = App.useApp();
   const [data, setData] = useState<OperationsConsoleData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [authUser, setAuthUser] = useState<OperationsUser | null>(null);
   const [section, setSection] = useState<Section>(() => readHash());
   const [deviceFilter, setDeviceFilter] = useState("ALL");
 
@@ -83,17 +94,51 @@ export default function OperationsConsole() {
     try {
       setData(await getOperationsConsole());
     } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
+      if (error instanceof AuthenticationRequiredError) {
+        setAuthRequired(true);
+        setData(null);
+      } else {
+        message.error(error instanceof Error ? error.message : String(error));
+      }
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    void refresh();
+    void getOperationsSession()
+      .then((session) => {
+        setAuthUser(session.user);
+        setAuthRequired(false);
+        return refresh();
+      })
+      .catch((error) => {
+        setLoading(false);
+        if (error instanceof AuthenticationRequiredError) {
+          setAuthRequired(true);
+          return;
+        }
+        message.error(error instanceof Error ? error.message : String(error));
+      });
+  }, []);
+
+  useEffect(() => {
+    if (authRequired) return;
     const timer = window.setInterval(() => void refresh(true), 10_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [authRequired]);
+
+  if (authRequired) {
+    return (
+      <OperationsLogin
+        onAuthenticated={(user) => {
+          setAuthUser(user);
+          setAuthRequired(false);
+          void refresh();
+        }}
+      />
+    );
+  }
 
   function navigate(next: Section) {
     setSection(next);
@@ -159,9 +204,26 @@ export default function OperationsConsole() {
         <div className="ops-user">
           <div className="avatar">管</div>
           <div>
-            <strong>平台管理员</strong>
-            <span>东信内部账号</span>
+            <strong>{authUser?.displayName || "平台管理员"}</strong>
+            <span>{authUser?.username || "东信内部账号"}</span>
           </div>
+          {authUser?.username !== "local-development" ? (
+            <Tooltip title="退出登录">
+              <button
+                className="ops-logout"
+                type="button"
+                aria-label="退出登录"
+                onClick={() => {
+                  logoutOperations();
+                  setData(null);
+                  setAuthUser(null);
+                  setAuthRequired(true);
+                }}
+              >
+                <LogoutOutlined />
+              </button>
+            </Tooltip>
+          ) : null}
         </div>
       </aside>
 
@@ -215,6 +277,73 @@ export default function OperationsConsole() {
         </div>
       </main>
     </div>
+  );
+}
+
+function OperationsLogin({
+  onAuthenticated,
+}: {
+  onAuthenticated: (user: OperationsUser) => void;
+}) {
+  const { message } = App.useApp();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    try {
+      const session = await loginOperations(username, password);
+      onAuthenticated(session.user);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="ops-login-shell">
+      <section className="ops-login-panel" aria-labelledby="login-title">
+        <div className="ops-login-brand">
+          <div className="ops-mark">DX</div>
+          <div>
+            <h1 id="login-title">东信设备运营平台</h1>
+            <span>内部员工登录</span>
+          </div>
+        </div>
+        <form onSubmit={(event) => void submit(event)}>
+          <label htmlFor="ops-username">账号</label>
+          <Input
+            id="ops-username"
+            autoComplete="username"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            prefix={<UserOutlined />}
+            size="large"
+          />
+          <label htmlFor="ops-password">密码</label>
+          <Input.Password
+            id="ops-password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            size="large"
+          />
+          <Button
+            htmlType="submit"
+            type="primary"
+            size="large"
+            block
+            loading={submitting}
+            disabled={!username.trim() || !password}
+          >
+            登录
+          </Button>
+        </form>
+      </section>
+    </main>
   );
 }
 
@@ -765,7 +894,14 @@ function SystemPage({ data }: { data: OperationsConsoleData }) {
           <Infra
             title="员工认证"
             value={readiness.authentication}
-            detail="正式部署前启用账号密码"
+            good={readiness.authentication === "ENABLED"}
+            detail={
+              readiness.authentication === "ENABLED"
+                ? "员工登录门禁已启用"
+                : readiness.authentication === "MISCONFIGURED"
+                  ? "认证配置不完整，服务应拒绝启动"
+                  : "本地研发免登录模式"
+            }
           />
         </div>
       </section>

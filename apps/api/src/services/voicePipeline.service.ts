@@ -30,11 +30,13 @@ import { getTestSet } from "./testSet.service.js";
 import {
   executeCommandForDevice,
   getDeviceState,
+  listCommandsForDevice,
   queueDeviceCommand,
 } from "./deviceRegistry.service.js";
 import { intentToDeviceAction } from "./deviceAccess.service.js";
 import { publishQueuedDeviceCommand } from "./mqttGateway.service.js";
 import { synthesizeSpeech, transcribeAudio } from "./speech.service.js";
+import { createDeviceVoiceReplyAsset } from "./deviceAudioAsset.service.js";
 
 export async function runLlmModuleTest(input: {
   deviceId: string;
@@ -164,6 +166,7 @@ export async function runVoicePipeline(
         cost: buildCost(asrCost, 0, 0, inputTokens, outputTokens, isEstimated),
         ttsAudioBase64: null,
         ttsAudioMimeType: null,
+        ttsAudioPath: null,
       });
     }
   } else {
@@ -198,6 +201,7 @@ export async function runVoicePipeline(
       cost: buildCost(asrCost, 0, 0, inputTokens, outputTokens, isEstimated),
       ttsAudioBase64: null,
       ttsAudioMimeType: null,
+      ttsAudioPath: null,
     });
   }
 
@@ -245,10 +249,52 @@ export async function runVoicePipeline(
       cost: buildCost(asrCost, 0, 0, inputTokens, outputTokens, isEstimated),
       ttsAudioBase64: null,
       ttsAudioMimeType: null,
+      ttsAudioPath: null,
     });
   }
 
   const normalizedText = removeWakeWord(transcript || "");
+  if (wakeResult.detected && !normalizedText) {
+    const safetyResult = noActionSafety("仅识别到唤醒词，等待用户后续指令");
+    addStage(stages, {
+      key: "SAFETY",
+      label: "安全校验",
+      status: "COMPLETED",
+      source: "WAKE_WORD_GATE",
+      result: safetyResult.decision,
+      detail: safetyResult,
+      latencyMs: 0,
+      costCny: 0,
+      error: null,
+    });
+    addStage(stages, {
+      key: "TTS",
+      label: "TTS 播报",
+      status: "SKIPPED",
+      source: "LOCAL_FIXED_AUDIO",
+      result: "开发板播放本地低音量唤醒回复",
+      detail: { inputText: "我在", outputAudio: "LOCAL_WAKE_ACK" },
+      latencyMs: 0,
+      costCny: 0,
+      error: null,
+    });
+    return buildPipelineResponse({
+      sessionId,
+      body,
+      transcript,
+      stages,
+      route: "ONLINE_RULE",
+      aiResult: chat("我在"),
+      safetyResult,
+      deviceState: await getDeviceState(body.deviceId),
+      commandRecord: null,
+      totalLatencyMs: Math.round(performance.now() - started),
+      cost: buildCost(asrCost, 0, 0, inputTokens, outputTokens, isEstimated),
+      ttsAudioBase64: null,
+      ttsAudioMimeType: null,
+      ttsAudioPath: null,
+    });
+  }
   const offlineMatchedResult =
     body.simulateOffline === "MISS" || deviceOfflineHandled
       ? null
@@ -579,6 +625,12 @@ async function finishPipeline(input: {
     ) {
       commandRecord = command;
       await publishQueuedDeviceCommand(command);
+      commandRecord = await waitForDeviceCommandResult(
+        input.body.deviceId,
+        command.id,
+        3500,
+      );
+      nextDeviceState = await getDeviceState(input.body.deviceId);
     } else {
       const executed = await executeCommandForDevice(
         input.body.deviceId,
@@ -625,13 +677,21 @@ async function finishPipeline(input: {
     });
   }
 
-  const replyText =
+  let replyText =
     safetyResult.decision === "NO_ACTION" ||
     safetyResult.decision === "APPROVED"
       ? input.aiResult.speak
       : safetyResult.speak || input.aiResult.speak;
+  if (commandRecord && input.body.inputSource.startsWith("DEVICE")) {
+    if (commandRecord.status === "QUEUED") {
+      replyText = "设备暂未确认执行结果，请稍后查看状态。";
+    } else if (commandRecord.status !== "APPLIED") {
+      replyText = "设备未能执行这条指令，请检查设备状态。";
+    }
+  }
   let ttsAudioBase64: string | null = null;
   let ttsAudioMimeType: string | null = null;
+  let ttsAudioPath: string | null = null;
   if (!input.body.synthesizeSpeech) {
     addStage(input.stages, {
       key: "TTS",
@@ -666,9 +726,18 @@ async function finishPipeline(input: {
     const tts = await synthesizeSpeech({
       text: replyText,
       providerId: input.body.ttsProviderId,
+      audioFormat: input.body.inputSource === "DEVICE_AUDIO" ? "wav" : undefined,
     });
-    ttsAudioBase64 = tts.audioBase64;
     ttsAudioMimeType = tts.audioMimeType;
+    if (tts.audioBase64 && input.body.inputSource === "DEVICE_AUDIO") {
+      const asset = createDeviceVoiceReplyAsset({
+        deviceId: input.body.deviceId,
+        wavBase64: tts.audioBase64,
+      });
+      ttsAudioPath = asset.path;
+    } else {
+      ttsAudioBase64 = tts.audioBase64;
+    }
     input.cost.ttsCny += tts.costCny;
     input.cost.totalCny += tts.costCny;
     input.cost.isEstimated ||= tts.isEstimated;
@@ -704,6 +773,7 @@ async function finishPipeline(input: {
     cost: input.cost,
     ttsAudioBase64,
     ttsAudioMimeType,
+    ttsAudioPath,
   };
 
   await appendLog({
@@ -724,6 +794,28 @@ async function finishPipeline(input: {
   });
 
   return VoicePipelineResponseSchema.parse(response);
+}
+
+async function waitForDeviceCommandResult(
+  deviceId: string,
+  commandId: string,
+  timeoutMs: number,
+): Promise<DeviceCommandRecord> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const command = (await listCommandsForDevice(deviceId)).find(
+      (candidate) => candidate.id === commandId,
+    );
+    if (command && command.status !== "QUEUED") return command;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  const command = (await listCommandsForDevice(deviceId)).find(
+    (candidate) => candidate.id === commandId,
+  );
+  if (!command) {
+    throw new Error(`Device command disappeared while waiting: ${commandId}`);
+  }
+  return command;
 }
 
 function resolveWakeWord(
@@ -972,7 +1064,7 @@ function buildPipelineResponse(input: {
   body: VoicePipelineRequest;
   transcript: string | null;
   stages: VoicePipelineStage[];
-  route: "UNRESOLVED";
+  route: VoicePipelineResponse["route"];
   aiResult: AiResult;
   safetyResult: SafetyResult;
   deviceState: DeviceState;
@@ -981,6 +1073,7 @@ function buildPipelineResponse(input: {
   cost: ReturnType<typeof buildCost>;
   ttsAudioBase64: string | null;
   ttsAudioMimeType: string | null;
+  ttsAudioPath: string | null;
 }): VoicePipelineResponse {
   const response: VoicePipelineResponse = {
     sessionId: input.sessionId,
@@ -997,6 +1090,7 @@ function buildPipelineResponse(input: {
     cost: input.cost,
     ttsAudioBase64: input.ttsAudioBase64,
     ttsAudioMimeType: input.ttsAudioMimeType,
+    ttsAudioPath: input.ttsAudioPath,
   };
   return VoicePipelineResponseSchema.parse(response);
 }
