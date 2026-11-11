@@ -41,6 +41,9 @@ Page({
     try {
       const result = await api.queryKnowledge(question, this.data.selectedCategory || undefined);
       this.setData({ result });
+    } catch (error) {
+      this.setData({ result: null });
+      wx.showToast({ title: error.message || '查询失败', icon: 'none' });
     } finally {
       this.setData({ searching: false });
     }

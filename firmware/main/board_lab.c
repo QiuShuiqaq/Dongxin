@@ -507,6 +507,7 @@ static cJSON *build_snapshot(void)
     cJSON_AddStringToObject(system, "firmwareVersion", DX_FIRMWARE_VERSION);
     char ip[16] = "-";
     int rssi = 0;
+    cJSON_AddBoolToObject(network, "timeSynced", wifi_manager_time_is_synced());
     if (wifi_manager_get_network_info(ip, sizeof(ip), &rssi) == ESP_OK) {
         cJSON_AddStringToObject(network, "ip", ip);
         cJSON_AddNumberToObject(network, "rssi", rssi);

@@ -3,7 +3,7 @@ import type {
   VoicePipelineResponse,
   VoiceTestSession,
 } from "@dongxin/shared";
-import { VoiceTestSessionStatusSchema } from "@dongxin/shared";
+import { VoiceTestSessionStatusSchema, VoiceTestSettingsSchema } from "@dongxin/shared";
 import { z } from "zod";
 import { ApiError } from "../http/apiError.js";
 import {
@@ -21,8 +21,9 @@ import {
   addAsrDatasetItem,
   listAsrDatasets,
 } from "./aiTesting.service.js";
+import { voiceConversations } from "./conversation.service.js";
+import { cancelVoiceTestWork } from '../runtime/voiceTestWork.js';
 
-const RECORD_SECONDS = 6;
 const StartVoiceTestSchema = z
   .object({
     deviceId: z.string().min(1),
@@ -31,6 +32,8 @@ const StartVoiceTestSchema = z
       .default("FULL_PIPELINE"),
     asrDatasetId: z.string().uuid().optional(),
     expectedText: z.string().trim().min(1).max(500).optional(),
+    continuous: z.boolean().default(false),
+    settings: VoiceTestSettingsSchema.default(VoiceTestSettingsSchema.parse({})),
   })
   .superRefine((value, context) => {
     const hasDataset = Boolean(value.asrDatasetId);
@@ -53,9 +56,11 @@ const VoiceTestDeviceStatusSchema = z.object({
   deviceId: z.string().min(1),
   testSessionId: z.string().uuid(),
   status: VoiceTestSessionStatusSchema.extract([
+    "WAITING",
     "RECORDING",
     "UPLOADING",
     "PROCESSING",
+    "PLAYING",
     "COMPLETED",
     "CANCELLED",
     "FAILED",
@@ -95,9 +100,15 @@ export async function startVoiceTest(requestBody: unknown): Promise<VoiceTestSes
     throw new ApiError(409, "VOICE_TEST_ALREADY_RUNNING", "该设备已有正在进行的语音测试");
   }
 
+  if (body.mode !== "ASR_ONLY") {
+    voiceConversations.reset({ deviceId: body.deviceId, channel: "pipeline" });
+  }
+
   const session = await createVoiceTestSessionRecord({
     deviceId: body.deviceId,
-    recordSeconds: RECORD_SECONDS,
+    recordSeconds: body.settings.maxUtteranceSeconds,
+    continuous: body.continuous && !body.asrDatasetId,
+    settings: body.settings,
     mode: body.mode,
     asrDatasetId: body.asrDatasetId ?? null,
     expectedText: body.expectedText ?? null,
@@ -107,7 +118,9 @@ export async function startVoiceTest(requestBody: unknown): Promise<VoiceTestSes
       deviceId: body.deviceId,
       testSessionId: session.id,
       action: "start",
-      recordSeconds: RECORD_SECONDS,
+      recordSeconds: session.recordSeconds,
+      continuous: session.continuous,
+      settings: session.settings,
       mode: body.mode,
     });
     return (await patchVoiceTestSession(session.id, {
@@ -157,13 +170,14 @@ export async function archiveVoiceTestPcm(
 
 export async function stopVoiceTest(sessionId: string): Promise<VoiceTestSession> {
   const session = await requireVoiceTestSession(sessionId);
-  if (terminalStatuses.has(session.status) || session.status === "PROCESSING") {
+  if (terminalStatuses.has(session.status)) {
     return hydrateCommandRecord(session);
   }
   await patchVoiceTestSession(session.id, {
     status: "STOPPING",
-    message: "停止命令已发送，等待设备取消录音",
+    message: "停止命令已发送，等待设备结束当前会话",
   });
+  cancelVoiceTestWork(session.id);
   try {
     await publishVoiceTestControl({
       deviceId: session.deviceId,
@@ -202,6 +216,15 @@ export async function handleVoiceTestDeviceStatus(requestBody: unknown): Promise
   if (!session || session.deviceId !== body.deviceId || terminalStatuses.has(session.status)) {
     return session ?? null;
   }
+  if (terminalStatuses.has(body.status)) cancelVoiceTestWork(session.id);
+  if (session.status === "STOPPING" && !terminalStatuses.has(body.status)) return session;
+  if (session.continuous && body.status === "COMPLETED" && session.turns.length === 0) {
+    return patchVoiceTestSession(session.id, {
+      status: "COMPLETED",
+      message: "会话结束，没有有效语音",
+      completedAt: new Date().toISOString(),
+    });
+  }
   const now = new Date().toISOString();
   return patchVoiceTestSession(session.id, {
     status: body.status,
@@ -213,33 +236,44 @@ export async function handleVoiceTestDeviceStatus(requestBody: unknown): Promise
   });
 }
 
-export async function markVoiceTestProcessing(sessionId: string): Promise<void> {
+export async function markVoiceTestProcessing(sessionId: string, deviceId?: string): Promise<VoiceTestSession> {
   const session = await requireVoiceTestSession(sessionId);
-  if (terminalStatuses.has(session.status)) return;
-  await patchVoiceTestSession(session.id, {
+  if (deviceId && session.deviceId !== deviceId) throw new ApiError(403, "VOICE_TEST_DEVICE_MISMATCH", "测试会话不属于该设备");
+  if (terminalStatuses.has(session.status) || session.status === "STOPPING") {
+    throw new ApiError(409, "VOICE_TEST_NOT_ACTIVE", "测试会话已结束或正在停止");
+  }
+  return (await patchVoiceTestSession(session.id, {
     status: "PROCESSING",
     message: "音频上传完成，正在执行 ASR 与语义处理",
     startedAt: session.startedAt ?? new Date().toISOString(),
-  });
+  })) as VoiceTestSession;
 }
 
 export async function completeVoiceTest(
   sessionId: string,
   result: VoicePipelineResponse,
+  durationMs = 0,
 ): Promise<void> {
   const session = await requireVoiceTestSession(sessionId);
-  if (session.status === "CANCELLED" || session.status === "FAILED") return;
-  await patchVoiceTestSession(session.id, {
-    status: "COMPLETED",
-    message: "语音流水线处理完成",
+  if (terminalStatuses.has(session.status) || session.status === "STOPPING") return;
+  const turns = [...session.turns, {
+    id: z.string().uuid().parse(result.sessionId),
+    at: new Date().toISOString(),
+    durationMs,
     result,
-    completedAt: new Date().toISOString(),
+  }];
+  await patchVoiceTestSession(session.id, {
+    status: session.continuous ? (result.ttsAudioPath || result.replyText === "我在" ? "PLAYING" : "WAITING") : "COMPLETED",
+    message: session.continuous ? "本轮处理完成，等待设备播报或下一句" : "语音流水线处理完成",
+    turns,
+    result,
+    completedAt: session.continuous ? null : new Date().toISOString(),
   });
 }
 
 export async function failVoiceTest(sessionId: string, error: unknown): Promise<void> {
   const session = await requireVoiceTestSession(sessionId);
-  if (session.status === "CANCELLED") return;
+  if (session.status === "CANCELLED" || session.status === "STOPPING") return;
   await patchVoiceTestSession(session.id, {
     status: "FAILED",
     message: `语音处理失败：${errorMessage(error)}`,
@@ -275,7 +309,7 @@ async function expireStaleSession(session: VoiceTestSession): Promise<VoiceTestS
   const ageMs = Date.now() - new Date(session.updatedAt).getTime();
   const timeoutMs = session.status === "COMMAND_SENT" || session.status === "STOPPING"
     ? 15_000
-    : 60_000;
+    : session.status === "WAITING" ? session.settings.idleTimeoutMs + 15_000 : 90_000;
   if (ageMs <= timeoutMs) return session;
   return (await patchVoiceTestSession(session.id, {
     status: "FAILED",
@@ -288,9 +322,11 @@ async function expireStaleSession(session: VoiceTestSession): Promise<VoiceTestS
 
 function deviceStatusMessage(status: VoiceTestSession["status"]): string {
   const messages: Partial<Record<VoiceTestSession["status"], string>> = {
+    WAITING: "等待下一句语音",
     RECORDING: "设备正在录音",
     UPLOADING: "录音完成，正在上传 PCM",
     PROCESSING: "服务器正在处理语音",
+    PLAYING: "设备正在播报回复",
     COMPLETED: "设备端测试完成",
     CANCELLED: "测试已停止",
     FAILED: "设备端测试失败",

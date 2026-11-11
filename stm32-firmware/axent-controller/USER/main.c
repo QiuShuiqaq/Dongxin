@@ -115,6 +115,7 @@ int main(void)
 		Check_RF_Code();							// 检测  RF433信号      
 		Check_BLE_Uart1();							// BLE   串口数据检测 	   
 		Check_Homen_Uart2();						// 鸿蒙  串口数据检测			   
+		Check_CI1302_Uart3();					// 配网阶段仍处理离线词
 		disp_reg = Conver_Temper();   				// 温度 --> 数码管显存
 		TM1620_Display();							// 显示扫描   
 		Send_Attch_Net();							// 配网查询    		   
@@ -131,7 +132,7 @@ int main(void)
 		Check_RF_Code();									// 检测  RF433信号   
 		Check_BLE_Uart1();									// BLE   串口数据检测 	
 		Check_Homen_Uart2();								// 鸿蒙  串口数据检测	
-		Check_RS485_Uart3();								// RS485 串口数据检测	
+		Check_CI1302_Uart3();							// CI1302 串口数据检测
         Running_Step_Moto();								// 步进电机 
 		Sys_Running();										// 系统端口处理	    
 		CuShi_TMR_Pro();									// 除湿运行时间   

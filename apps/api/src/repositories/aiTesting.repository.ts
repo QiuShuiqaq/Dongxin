@@ -120,6 +120,9 @@ export async function saveBatchRun(run: BatchTestRun): Promise<BatchTestRun> {
   return mutate(async () => {
     const runs = await listBatchRuns();
     const index = runs.findIndex((item) => item.id === run.id);
+    // A provider response or an already queued write must not resurrect a
+    // stopped batch. Evaluate inside the serialized repository mutation.
+    if (index >= 0 && ['COMPLETED', 'FAILED', 'CANCELLED'].includes(runs[index].status)) return runs[index];
     const next = [...runs];
     if (index >= 0) next[index] = BatchTestRunSchema.parse(run);
     else next.push(BatchTestRunSchema.parse(run));

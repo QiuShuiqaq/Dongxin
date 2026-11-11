@@ -10,12 +10,11 @@ const browser = await chromium.launch({
 });
 const failures = [];
 const developmentSections = [
-  ["overview", "研发总览"],
+  ["voice", "语音验证"],
   ["testing", "样机联调"],
-  ["flashing", "固件与烧录"],
-  ["aiServices", "AI 服务配置"],
-  ["voice", "在线语音"],
-  ["batchTesting", "批量测试与报告"],
+  ["batchTesting", "批量测试"],
+  ["flashing", "固件烧录"],
+  ["aiServices", "AI 服务"],
 ];
 const operationsSections = [
   ["overview", "运营总览"],
@@ -63,11 +62,11 @@ async function verifyDevelopmentDesktop() {
   const page = await context.newPage();
   page.setDefaultTimeout(10000);
   monitor(page, "研发中心");
-  await page.goto("http://127.0.0.1:3010/#overview", {
+  await page.goto("http://127.0.0.1:3010/#voice", {
     waitUntil: "networkidle",
   });
   for (const [section, title] of developmentSections) {
-    if (section !== "overview") {
+    if (section !== "voice") {
       await page.locator(".nav-group button", { hasText: title }).click();
     }
     await page
@@ -135,24 +134,42 @@ async function verifyDevelopmentDesktop() {
     fullPage: true,
   });
 
-  await page.locator(".nav-group button", { hasText: "在线语音" }).click();
+  await page.locator(".nav-group button", { hasText: "语音验证" }).click();
   await page
-    .getByRole("heading", { name: "实板语音测试", exact: true })
+    .getByRole("heading", { name: "当前会话", exact: true })
     .waitFor();
+  await page.getByRole('button', { name: '测试参数' }).click();
+  await page.getByRole('dialog', { name: '测试参数' }).getByText('采集与断句参数').waitFor();
+  await page.getByRole('dialog', { name: '测试参数' }).locator('button.ant-drawer-close').click();
+  await page.getByRole('dialog', { name: '测试参数' }).waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: '场景模拟' }).click();
+  await page.getByRole('dialog', { name: '场景模拟' }).getByText('断网 · 固定词').waitFor();
+  const proactivePanel = page.getByRole('dialog', { name: '场景模拟' });
+  await proactivePanel.getByRole('heading', { name: '主动沟通 · 硬件模拟' }).waitFor();
+  await proactivePanel.getByRole('combobox', { name: '主动沟通模拟事件' }).waitFor();
+  await proactivePanel.getByRole('button', { name: '预览判断' }).waitFor();
+  await proactivePanel.getByRole('button', { name: '播报并收听回答' }).waitFor();
+  await page.getByRole('dialog', { name: '场景模拟' }).locator('button.ant-drawer-close').click();
+  await page.getByRole('dialog', { name: '场景模拟' }).waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: '历史记录' }).click();
+  await page.getByRole('dialog', { name: '历史记录' }).waitFor();
+  await page.getByRole('dialog', { name: '历史记录' }).locator('button.ant-drawer-close').click();
+  await page.getByRole('dialog', { name: '历史记录' }).waitFor({ state: 'hidden' });
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({
     path: ".artifacts/development-voice-desktop.png",
     fullPage: true,
   });
-  await page.locator(".nav-group button", { hasText: "AI 服务配置" }).click();
+  await page.locator(".nav-group button", { hasText: "AI 服务" }).click();
   await page
-    .getByRole("heading", { name: "默认 AI 服务", exact: true })
+    .getByRole("heading", { name: "默认模型", exact: true })
     .waitFor();
   await page.screenshot({
     path: ".artifacts/development-ai-services-desktop.png",
     fullPage: true,
   });
   await page
-    .locator(".nav-group button", { hasText: "批量测试与报告" })
+    .locator(".nav-group button", { hasText: "批量测试" })
     .click();
   await page
     .getByRole("heading", { name: "批量任务记录", exact: true })
@@ -221,7 +238,36 @@ async function verifyOperationsDesktop() {
   if (operationDeviceIds.some((id) => /SUPERMINI|LICHUANG|DEVKIT/i.test(id))) {
     failures.push("运营平台/设备管理：出现研发开发板设备");
   }
+  await page.locator(".ops-nav-group button", { hasText: "AI 运营" }).click();
+  await page.getByRole('heading', { name: '线上默认模型' }).waitFor();
+  await page.getByRole('heading', { name: '语音识别测试' }).waitFor();
+  await page.getByLabel('选择 ASR 测试音频').waitFor();
+  await assertNoPageOverflow(page, '运营平台/服务配置');
+  await page.screenshot({ path: '.artifacts/operations-ai-services-desktop.png', fullPage: true });
+  await page.locator('.ant-segmented-item', { hasText: '运行策略' }).click();
+  await page.getByText("安静时段", { exact: true }).first().waitFor();
+  await page.getByLabel("安静时段开始").waitFor();
+  await page.locator('.ant-segmented-item', { hasText: 'AI 验证' }).click();
+  await page.getByLabel('单条测试语料').waitFor();
+  if (await page.getByRole('button', { name: '运行验证' }).isEnabled()) {
+    failures.push('运营平台/AI 验证：空语料时仍能发起付费模型调用');
+  }
+  await page.locator('.ant-segmented-item', { hasText: '批量与报告' }).click();
+  await page.getByRole('heading', { name: '批量任务记录' }).waitFor();
+  await page.locator('.ant-segmented-item', { hasText: '运行策略' }).click();
+  await assertNoPageOverflow(page, "运营平台/主动沟通设置");
+  await page.screenshot({ path: ".artifacts/operations-ai-desktop.png", fullPage: true });
+  await page.locator('.ops-nav-group button', { hasText: '告警与日志' }).click();
+  await page.locator('.ant-segmented-item', { hasText: '语音记录' }).click();
+  await page.getByRole('heading', { name: '线上语音记录' }).waitFor();
+  await assertNoPageOverflow(page, '运营平台/语音记录');
+  await page.screenshot({ path: '.artifacts/operations-voice-history-desktop.png', fullPage: true });
   await page.locator(".ops-nav-group button", { hasText: "运营总览" }).click();
+  await page.getByRole('button', { name: '待处理事项' }).click();
+  await page.getByRole('dialog', { name: '待处理事项' }).waitFor();
+  await page.getByRole('dialog', { name: '待处理事项' }).locator('button.ant-drawer-close').click();
+  await page.getByRole('dialog', { name: '待处理事项' }).waitFor({ state: 'hidden' });
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({
     path: ".artifacts/operations-overview-desktop.png",
     fullPage: true,
@@ -245,9 +291,9 @@ async function verifyMobileConsole({
   const page = await context.newPage();
   page.setDefaultTimeout(10000);
   monitor(page, label);
-  await page.goto(`${baseUrl}#overview`, { waitUntil: "networkidle" });
+  await page.goto(`${baseUrl}#${sections[0][0]}`, { waitUntil: "networkidle" });
   for (const [section, title] of sections) {
-    if (section !== "overview") {
+    if (section !== sections[0][0]) {
       await page.locator(navSelector, { hasText: title }).click();
     }
     await page
@@ -255,6 +301,17 @@ async function verifyMobileConsole({
       .first()
       .waitFor();
     await assertNoPageOverflow(page, `${label}/${section}`);
+    if (label === '运营平台移动端' && section === 'records') {
+      await page.locator('.ant-segmented-item', { hasText: '语音记录' }).click();
+      await page.getByRole('heading', { name: '线上语音记录' }).waitFor();
+      await assertNoPageOverflow(page, `${label}/语音记录`);
+      await page.screenshot({ path: '.artifacts/operations-voice-history-mobile.png', fullPage: true });
+    }
+    if (label === '运营平台移动端' && section === 'ai') {
+      await page.getByRole('heading', { name: '线上默认模型' }).waitFor();
+      await assertNoPageOverflow(page, `${label}/服务配置`);
+      await page.screenshot({ path: '.artifacts/operations-ai-services-mobile.png', fullPage: true });
+    }
   }
   const visibleIcons = await page.locator("aside nav svg:visible").count();
   if (visibleIcons < sections.length)

@@ -17,6 +17,7 @@ firmware/build-*/
 firmware/build-*.log
 firmware/managed_components/
 firmware/sdkconfig*.old
+firmware/main/device_provisioning.h
 stm32-firmware/**/Objects/
 stm32-firmware/**/Listings/
 stm32-firmware/**/DebugConfig/
@@ -34,6 +35,10 @@ data/devices.json
 data/device-events.json
 data/device-commands.json
 data/knowledge-documents.json
+data/knowledge-sources.json
+data/knowledge-seed-state.json
+data/knowledge-files/
+data/knowledge-audit.json
 data/proactive-settings.json
 data/system-logs.json
 data/voice-test-sessions.json
@@ -42,3 +47,6 @@ data/asr-test-datasets.json
 data/batch-test-runs.json
 data/test-artifacts/
 data/*.tmp
+data/*.tmp.*
+data/development-voice-history.json
+data/device-voice-volumes.json

@@ -41,11 +41,19 @@ Page({
       const assistantMessage = {
         id: `a-${Date.now()}`,
         role: 'assistant',
-        text: result.replyText || '已处理'
+        text: result.replyText || '服务端未返回回复'
       };
       this.setData({
         messages: [...this.data.messages, assistantMessage],
-        lastIntent: formatIntent(result.aiResult.intent || result.aiResult.resultType)
+        lastIntent: result.aiResult ? formatIntent(result.aiResult.intent || result.aiResult.resultType) : ''
+      });
+    } catch (error) {
+      this.setData({
+        messages: [...this.data.messages, {
+          id: `e-${Date.now()}`,
+          role: 'assistant',
+          text: `请求失败：${error.message || '网络异常'}`
+        }]
       });
     } finally {
       this.setData({ sending: false });

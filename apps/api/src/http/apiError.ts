@@ -18,3 +18,7 @@ export function errorBody(code: string, message: string) {
   };
 }
 
+export function publicErrorBody(statusCode: number, code: string, message: string) {
+  return errorBody(code, statusCode >= 500 ? '服务暂时不可用，请稍后重试' : message);
+}
+

@@ -7,6 +7,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -14,6 +15,7 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_netif_sntp.h"
 #include "esp_wifi.h"
 #include "wifi_manager.h"
 #include "app_config.h"
@@ -25,9 +27,19 @@ static esp_event_handler_instance_t s_wifi_event_instance;
 static esp_event_handler_instance_t s_ip_event_instance;
 static esp_netif_t *s_sta_netif;
 static int s_retry_count;
+static volatile bool s_time_synced;
+static volatile TickType_t s_last_time_sync_tick;
 
 static const int WIFI_CONNECTED_BIT = BIT0;
 static const int WIFI_FAIL_BIT = BIT1;
+
+static void on_time_synced(struct timeval *value)
+{
+    if (value == NULL || value->tv_sec < (time_t)1704067200) return;
+    s_last_time_sync_tick = xTaskGetTickCount();
+    s_time_synced = true;
+    ESP_LOGI(TAG, "SNTP time synchronized");
+}
 
 static void on_wifi_event(
     void *arg,
@@ -89,6 +101,14 @@ void wifi_manager_init(void)
         return;
     }
 
+    esp_sntp_config_t sntp_config = ESP_NETIF_SNTP_DEFAULT_CONFIG("ntp.aliyun.com");
+    sntp_config.sync_cb = on_time_synced;
+    const esp_err_t sntp_err = esp_netif_sntp_init(&sntp_config);
+    if (sntp_err != ESP_OK) {
+        ESP_LOGW(TAG, "SNTP initialization failed; remote commands will remain blocked: %s",
+                 esp_err_to_name(sntp_err));
+    }
+
     wifi_init_config_t wifi_init_config = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&wifi_init_config));
 
@@ -133,6 +153,13 @@ bool wifi_manager_is_connected(void)
     }
 
     return (xEventGroupGetBits(s_wifi_event_group) & WIFI_CONNECTED_BIT) != 0;
+}
+
+bool wifi_manager_time_is_synced(void)
+{
+    const TickType_t max_age = pdMS_TO_TICKS(60000) * 360U;
+    return s_time_synced &&
+        (TickType_t)(xTaskGetTickCount() - s_last_time_sync_tick) < max_age;
 }
 
 bool wifi_manager_wait_connected(int timeout_ms)

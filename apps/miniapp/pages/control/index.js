@@ -4,6 +4,8 @@ const { formatIntent } = require('../../utils/format');
 Page({
   data: {
     state: null,
+    error: '',
+    busy: false,
     modeTags: [],
     targetTemperature: 40,
     commandGroups: [
@@ -39,15 +41,37 @@ Page({
   },
 
   async loadData() {
-    const data = await api.getBootstrap();
-    this.updateState(data.deviceState);
+    try {
+      const data = await api.getDeviceOverview();
+      if (!data.state) throw new Error('服务端未返回设备状态');
+      this.updateState(data.state);
+      this.setData({ error: '' });
+    } catch (error) {
+      this.setData({ state: null, modeTags: [], error: error.message || '读取设备失败' });
+    }
   },
 
   async handleCommand(event) {
+    if (this.data.busy || !this.data.state?.isOnline) {
+      wx.showToast({ title: '设备未连接', icon: 'none' });
+      return;
+    }
     const intent = event.currentTarget.dataset.intent;
-    const result = await api.sendDeviceCommand(intent);
-    this.updateState(result.state);
-    wx.showToast({ title: '已执行', icon: 'success' });
+    this.setData({ busy: true });
+    try {
+      const result = await api.sendDeviceCommand(intent);
+      if (result.command?.status === 'APPLIED') {
+        this.updateState(result.state);
+        wx.showToast({ title: '设备已确认', icon: 'success' });
+      } else {
+        wx.showToast({ title: result.delivery === 'QUEUED_FOR_DEVICE' ? '设备暂不可达' : '等待设备回执', icon: 'none' });
+        await this.loadData();
+      }
+    } catch (error) {
+      wx.showToast({ title: error.message || '控制失败', icon: 'none' });
+    } finally {
+      this.setData({ busy: false });
+    }
   },
 
   decreaseTemp() {
@@ -61,11 +85,27 @@ Page({
   },
 
   async applyTemperature() {
-    const result = await api.sendDeviceCommand('SET_TEMP', {
-      temperature: this.data.targetTemperature
-    });
-    this.updateState(result.state);
-    wx.showToast({ title: '温度已设置', icon: 'success' });
+    if (this.data.busy || !this.data.state?.isOnline) {
+      wx.showToast({ title: '设备未连接', icon: 'none' });
+      return;
+    }
+    this.setData({ busy: true });
+    try {
+      const result = await api.sendDeviceCommand('SET_TEMP', {
+        temperature: this.data.targetTemperature
+      });
+      if (result.command?.status === 'APPLIED') {
+        this.updateState(result.state);
+        wx.showToast({ title: '设备已确认', icon: 'success' });
+      } else {
+        wx.showToast({ title: result.delivery === 'QUEUED_FOR_DEVICE' ? '设备暂不可达' : '等待设备回执', icon: 'none' });
+        await this.loadData();
+      }
+    } catch (error) {
+      wx.showToast({ title: error.message || '设置失败', icon: 'none' });
+    } finally {
+      this.setData({ busy: false });
+    }
   },
 
   updateState(state) {

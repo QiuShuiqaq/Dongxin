@@ -1,5 +1,9 @@
 <view class="page">
-  <view class="section section-card">
+  <view wx:if="{{error}}" class="section section-card">
+    <text>{{error}}</text>
+    <button class="ghost-btn mini-btn" bindtap="loadData">重试</button>
+  </view>
+  <view wx:if="{{state}}" class="section section-card">
     <view class="row-between">
       <view>
         <text class="section-title">设备控制</text>
@@ -14,7 +18,7 @@
     </view>
   </view>
 
-  <view class="section section-card">
+  <view wx:if="{{state}}" class="section section-card">
     <text class="section-title">温度</text>
     <view class="temp-control">
       <button class="temp-btn" bindtap="decreaseTemp">-</button>
@@ -24,7 +28,7 @@
     <button class="primary-btn" bindtap="applyTemperature">设置温度</button>
   </view>
 
-  <view wx:for="{{commandGroups}}" wx:key="title" class="section section-card">
+  <view wx:if="{{state}}" wx:for="{{commandGroups}}" wx:key="title" class="section section-card">
     <text class="section-title">{{item.title}}</text>
     <view class="divider"></view>
     <view class="cmd-grid">

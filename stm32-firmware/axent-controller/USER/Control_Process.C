@@ -50,22 +50,20 @@ uint8_t huanqi0;					//【换气状态】 防重入
 uint8_t cushi0 = 0;					//【除湿状态】 防重入
 
 extern uint8_t Seek_2_tmr_F;
+static uint8_t ci_emit_type = 0U;
+static uint8_t ci_emit_semantic = 0U;
+static uint8_t ci_emit_sequence = 0U;
+volatile uint8_t dx_control_revision = 0U;
 /******************************************************************************************************
 	                                         串口数据 返回  						 
 
 ******************************************************************************************************/
 void Uart_Tx(unsigned char uart,unsigned char com0,unsigned char sw0,unsigned char stat0,unsigned char stat1)
 {
- uint16_t j=5000;
  uint8_t i;
  uint8_t Tx_Reg[32];									//串口2 发送缓存 	
 
 /*****************************************************************************************************/
- if (uart == 3)
-	{RS485_EN_High;										//RS485_EN 允许发送	 
-	 IWDG_ReloadCounter();								//喂狗 写 0xAAAA -> KR 
-	 while(j){j--;}			 							//串口3延时				
-    }									
 /*****************************************************************************************************/
  for (i=0; i<32; i++){Tx_Reg[i] = 0x00;}				//清发送缓存
  
@@ -84,6 +82,13 @@ void Uart_Tx(unsigned char uart,unsigned char com0,unsigned char sw0,unsigned ch
  Tx_Reg[10] =   stat0;			//[07]					//【状态】 
  Tx_Reg[11] =   Work_Time;		//[08]					//【运行时间】
  Tx_Reg[12] =   stat1;	        //[09]					//【状态1】 bit0 模式开关  / bit1 联网使能开关  /  bit2 预留
+ Tx_Reg[17] = dx_control_revision;
+ if (ci_emit_type != 0U) {
+  Tx_Reg[13] = 0xC1U;
+  Tx_Reg[14] = ci_emit_type;
+  Tx_Reg[15] = ci_emit_semantic;
+  Tx_Reg[16] = ci_emit_sequence;
+ }
 
  Tx_Reg[30] =	TX_End_H;								//尾H
  Tx_Reg[31] =	TX_End_L;  								//尾L	   
@@ -96,12 +101,14 @@ void Uart_Tx(unsigned char uart,unsigned char com0,unsigned char sw0,unsigned ch
  for (i=0; i<32; i++)		 
 	 {
 /*---------------------------------------------------------------------------------------------------*/		 
-	  if (uart == 1)													//串口1 发送 （蓝牙）
+	  if (uart == 1 || uart == 4)									//串口1；4仅发送给C3
 		 {
 	      USART_SendData(USART1, Tx_Reg[i]);							// 串口1 刷新手机 APP数据
 	      while (USART_GetFlagStatus(USART1, USART_FLAG_TC) == RESET); 	// 等待发送完成			 
-	      USART_SendData(USART2, Tx_Reg[i]);							// 串口2 刷新 鸿蒙模块数据
-	      while (USART_GetFlagStatus(USART2, USART_FLAG_TC) == RESET); 	// 等待发送完成			 			 
+	      if (uart == 1) {
+	       USART_SendData(USART2, Tx_Reg[i]);
+	       while (USART_GetFlagStatus(USART2, USART_FLAG_TC) == RESET);
+	      }
 		 }
 /*---------------------------------------------------------------------------------------------------*/		 
 	  else if (uart == 2)												// 鸿蒙 模块
@@ -113,27 +120,30 @@ void Uart_Tx(unsigned char uart,unsigned char com0,unsigned char sw0,unsigned ch
 	      while (USART_GetFlagStatus(USART2, USART_FLAG_TC) == RESET); 	// 等待发送完成			 
 		 }
 /*---------------------------------------------------------------------------------------------------*/		 
-      else																// 串口2 发送 （RS485）
+      else																// 仅向 C3 返回状态，不再向 USART3 发送
 	     {
 	      USART_SendData(USART1, Tx_Reg[i]);							// 串口1 刷新手机 APP数据
 	      while (USART_GetFlagStatus(USART1, USART_FLAG_TC) == RESET); 	// 等待发送完成			 
 			 
-	      USART_SendData(USART3, Tx_Reg[i]);							// 串口3 刷新RS485数据
-	      while (USART_GetFlagStatus(USART3, USART_FLAG_TC) == RESET); 	// 等待发送完成			 
 		 }		  
 	 }
 /*****************************************************************************************************/
- if (uart == 3)
-    {j = 5000;										//串口3发送延时
-	 IWDG_ReloadCounter();							//喂狗 写 0xAAAA -> KR 
-     while(j){j--;}
-	 RS485_EN_Low;									//RS485_EN 允许接收	 
-	}									
 }							 
 
 /*****************************************************************************************************/
 //                                           清除图标
 /*****************************************************************************************************/
+void Uart_Tx_CI_Event(uint8_t event_type, uint8_t semantic_id, uint8_t event_sequence)
+{
+ if (event_type != 1U && event_type != 2U) { return; }
+ ci_emit_type = event_type;
+ ci_emit_semantic = semantic_id;
+ ci_emit_sequence = event_sequence;
+ /* uart=4 sends a valid status-shaped frame to the C3 port only. */
+ Uart_Tx(4, 0xD0U, event_type, Ble_Stat, Status1);
+ ci_emit_type = 0U;
+}
+
 void Cler_ICO_Stat(void)		
 {
  Ble_Stat &= 0x01;									//【除照明之外，其他全部关闭】
@@ -233,6 +243,10 @@ void ReLoad_RunTime(void)
 /******************************************************************************************************/ 
 void Pro_Control(unsigned char uart,unsigned char Command,unsigned char SW,unsigned char Bpcount)
 {
+ if (Command != Command_Stat && Command != Command_Net_Stat &&
+     Command != Command_Rst_Net && Command != Command_En_Net) {
+  dx_control_revision++;
+ }
  switch (Command)								//[命令]         00
 		{
 	     case Command_Power:

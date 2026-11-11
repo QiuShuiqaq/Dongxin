@@ -1,0 +1,58 @@
+# Public cutover template. Do not install with the placeholder below.
+# Both names may share TCP 443, but only the operations virtual host is IP restricted.
+limit_req_zone $binary_remote_addr zone=dongxin_login:1m rate=5r/m;
+
+server {
+    listen 443 ssl http2;
+    server_name ops.zjdongxin.net;
+    ssl_certificate /etc/pki/dongxin/ops/fullchain.pem;
+    ssl_certificate_key /etc/pki/dongxin/ops/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    allow __DONGXIN_OFFICE_CIDR__;
+    deny all;
+
+    root /opt/dongxin/current/apps/operations-console/dist;
+    index index.html;
+    client_max_body_size 10m;
+    server_tokens off;
+    add_header X-Content-Type-Options nosniff always;
+
+    location = /api/auth/login {
+        limit_req zone=dongxin_login burst=5 nodelay;
+        limit_req_status 429;
+        include /etc/nginx/dongxin-proxy.conf;
+    }
+    location /api/development/ { return 404; }
+    location /api/device/ { return 404; }
+    location /api/ {
+        include /etc/nginx/dongxin-proxy.conf;
+    }
+    location /assets/ {
+        try_files $uri =404;
+        expires 1h;
+    }
+    location / {
+        add_header Cache-Control "no-store";
+        try_files $uri $uri/ /index.html;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name api.zjdongxin.net;
+    ssl_certificate /etc/pki/dongxin/api/fullchain.pem;
+    ssl_certificate_key /etc/pki/dongxin/api/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    server_tokens off;
+    add_header X-Content-Type-Options nosniff always;
+
+    # Every device request is authenticated by the API with its own identity.
+    location ^~ /api/device/v1/ {
+        client_max_body_size 1m;
+        client_body_timeout 20s;
+        include /etc/nginx/dongxin-proxy.conf;
+        proxy_read_timeout 75s;
+        proxy_send_timeout 75s;
+    }
+    location / { return 404; }
+}

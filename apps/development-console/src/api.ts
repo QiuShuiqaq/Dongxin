@@ -15,6 +15,7 @@ import type {
   TestSetSummary,
   TestSet,
   VoiceTestSession,
+  VoicePipelineResponse,
   VoiceProfile,
 } from "@dongxin/shared";
 
@@ -45,6 +46,49 @@ export interface DevelopmentConsoleData {
   traces: DeviceExecutionTrace[];
   mqtt: { enabled: boolean; connected: boolean; brokerUrl: string };
   gates: DevelopmentGate[];
+}
+
+export interface VoiceHistorySession {
+  id: string;
+  deviceId: string;
+  channel: 'llm-test' | 'pipeline' | 'device-test' | 'asr-test';
+  status?: string;
+  createdAt: string;
+  updatedAt: string;
+  turns: Array<{
+    id: string;
+    at: string;
+    text: string;
+    reply: string;
+    route: string;
+    error: string | null;
+    latencyMs: number | null;
+    costCny: number | null;
+  }>;
+}
+
+export interface DevelopmentLiveData {
+  sampledAt: string;
+  device: { id: string; name: string; status: DeviceProfile['status']; updatedAt: string };
+  mqtt: DevelopmentConsoleData['mqtt'];
+  voiceTests: Array<{
+    id: string; mode: string; status: string; message: string; updatedAt: string;
+    transcript: string | null; reply: string | null; route: string | null;
+    stages: Array<{ key: string; status: string; error: string | null }>;
+  }>;
+  audioTests: DeviceAudioTestResult[];
+  batchTests: Array<{
+    id: string; name: string; kind: string; status: string; updatedAt: string;
+    error: string | null; completed: number; total: number;
+  }>;
+  linkEvents: Array<{
+    id: string; createdAt: string;
+    payload: { eventType?: string; direction?: string; valid?: boolean; result?: string; frame?: string };
+  }>;
+  conversations: Array<{
+    id: string; channel: VoiceHistorySession['channel']; updatedAt: string;
+    lastTurn: VoiceHistorySession['turns'][number] | null;
+  }>;
 }
 
 export interface Stm32LinkEvent {
@@ -91,13 +135,17 @@ export interface LocalSerialPort {
   productId: string | null;
 }
 
-export type LocalAgentJobAction = "BUILD" | "FLASH" | "BUILD_FLASH" | "MONITOR";
+export type LocalAgentJobAction = "BUILD" | "FLASH" | "BUILD_FLASH" | "MONITOR" | "CI_MONITOR";
+export type CiMonitorMode = "UART1_PROTOCOL" | "UART0_LOG";
 
 export interface LocalAgentJob {
   id: string;
   action: LocalAgentJobAction;
-  boardId: "lichuang-c3-audio" | "esp32-c3-supermini";
+  boardId: "lichuang-c3-audio" | "esp32-c3-supermini" | "ci1302";
   port: string | null;
+  monitorMode: CiMonitorMode | null;
+  receivedBytes: number;
+  validFrames: number;
   status: "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
   startedAt: string;
   completedAt: string | null;
@@ -117,7 +165,11 @@ export interface LocalAgentHealth {
   activeJobId: string | null;
 }
 
+export type CiMonitorRecordSummary = Pick<LocalAgentJob,
+  "id" | "port" | "monitorMode" | "startedAt" | "completedAt" | "status" | "receivedBytes" | "validFrames">;
+
 export interface LlmModuleTestResult {
+  conversationId?: string;
   inputText: string;
   providerId: string | null;
   aiResult: {
@@ -149,7 +201,7 @@ export interface DeviceAudioTestResult {
   deviceId: string;
   text: string;
   target: "DEVICE";
-  status: "GENERATING" | "COMMAND_SENT" | "PLAYING" | "COMPLETED" | "CANCELLED" | "FAILED";
+  status: "GENERATING" | "COMMAND_SENT" | "PLAYING" | "LISTENING" | "COMPLETED" | "CANCELLED" | "FAILED";
   message: string;
   providerId: string | null;
   providerName: string | null;
@@ -172,7 +224,7 @@ export interface BoardLabSnapshot {
     minimumFreeHeapBytes: number;
     firmwareVersion: string;
   };
-  network: { ip?: string; rssi?: number };
+  network: { ip?: string; rssi?: number; timeSynced?: boolean };
   components: Array<{
     id: string;
     name: string;
@@ -243,6 +295,29 @@ export interface AiServiceConfiguration {
   defaults: AiServiceDefaults;
   providers: ModelProvider[];
   secrets: ProviderSecretStatus[];
+  referencePricing: Record<string, ReferencePricing | null>;
+}
+
+export interface ReferencePricing {
+  sourceUrl: string;
+  checkedAt: string;
+  note: string;
+  rates: Array<{ label: string; unit: string; input?: number; output?: number; price?: number }>;
+}
+
+export type CatalogVendorId = "aliyun" | "deepseek";
+
+export interface CatalogVendor {
+  id: CatalogVendorId;
+  label: string;
+  configured: boolean;
+}
+
+export interface CatalogModels {
+  vendor: CatalogVendorId;
+  models: string[];
+  pricingUrl: string;
+  details: Array<{ id: string; provider: ModelProvider | null; referencePricing: ReferencePricing | null }>;
 }
 
 const apiBaseUrl =
@@ -252,6 +327,30 @@ const deviceAgentBaseUrl =
 
 export async function getDevelopmentConsole(): Promise<DevelopmentConsoleData> {
   return request("/api/development/console");
+}
+
+export async function getDevelopmentLiveData(deviceId: string): Promise<DevelopmentLiveData> {
+  return request(`/api/development/live?deviceId=${encodeURIComponent(deviceId)}`);
+}
+
+export async function getVoiceHistory(deviceId: string, offset = 0, limit = 30): Promise<VoiceHistorySession[]> {
+  return request(`/api/development/voice-history?deviceId=${encodeURIComponent(deviceId)}&offset=${offset}&limit=${limit}`);
+}
+
+export interface DeviceVoiceVolume {
+  deviceId: string;
+  volumePercent: number;
+}
+
+export async function getDeviceVoiceVolume(deviceId: string): Promise<DeviceVoiceVolume> {
+  return request(`/api/development/voice-volume/${encodeURIComponent(deviceId)}`);
+}
+
+export async function saveDeviceVoiceVolume(deviceId: string, volumePercent: number): Promise<DeviceVoiceVolume> {
+  return request(`/api/development/voice-volume/${encodeURIComponent(deviceId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ volumePercent }),
+  });
 }
 
 export async function getDeviceState(deviceId: string): Promise<DeviceState> {
@@ -289,10 +388,11 @@ export async function startVoiceTest(
   mode: "FULL_PIPELINE" | "ASR_ONLY" | "CI_WAKE_ONLINE_FALLBACK" =
     "FULL_PIPELINE",
   capture?: { asrDatasetId: string; expectedText: string },
+  options?: { continuous?: boolean; settings?: import('@dongxin/shared').VoiceTestSettings },
 ): Promise<VoiceTestSession> {
   return request("/api/development/voice-tests", {
     method: "POST",
-    body: JSON.stringify({ deviceId, mode, ...capture }),
+    body: JSON.stringify({ deviceId, mode, ...capture, ...options }),
   });
 }
 
@@ -325,6 +425,49 @@ export async function simulateCi1302Event(input: {
   });
 }
 
+export type SimulatedSensorEvent = 'OCCUPANCY_ENTER' | 'LOW_TEMPERATURE' | 'HIGH_HUMIDITY' | 'LONG_RUNNING';
+
+export interface ProactiveSensorSimulation {
+  simulation: true;
+  actionExecuted: false;
+  event: { deviceId: string; eventType: SimulatedSensorEvent; ambientTemperature?: number | null; humidity?: number | null };
+  decision: { shouldSpeak: boolean; speak: string; requiresConfirm: boolean; reason: string; suggestedIntent: string | null };
+  playback: { id?: string; status?: string } | null;
+  note: string;
+}
+
+export async function simulateProactiveSensor(input: {
+  deviceId: string;
+  eventType: SimulatedSensorEvent;
+  playToDevice: boolean;
+  volumePercent: number;
+  ambientTemperature?: number | null;
+  humidity?: number | null;
+}): Promise<ProactiveSensorSimulation> {
+  return request('/api/development/proactive/simulate', {
+    method: 'POST', body: JSON.stringify(input),
+  });
+}
+
+export type DevelopmentScenario = 'WIFI_DOWN_FIXED_COMMAND' | 'WIFI_DOWN_OPEN_QUESTION' |
+  'CLOUD_TIMEOUT' | 'RECONNECT_STALE_COMMAND' | 'DUPLICATE_LOCAL_EVENT';
+export interface DevelopmentScenarioResult {
+  simulation: true;
+  deviceId: string;
+  scenario: DevelopmentScenario;
+  title: string;
+  steps: string[];
+  expected: string;
+  actionExecuted: false;
+  deviceStateChanged: false;
+  note: string;
+}
+export async function evaluateDevelopmentScenario(deviceId: string, scenario: DevelopmentScenario): Promise<DevelopmentScenarioResult> {
+  return request('/api/development/scenarios/evaluate', {
+    method: 'POST', body: JSON.stringify({ deviceId, scenario }),
+  });
+}
+
 export async function getLocalAgentHealth(): Promise<LocalAgentHealth> {
   return agentRequest("/health");
 }
@@ -337,10 +480,19 @@ export async function getCurrentLocalAgentJob(): Promise<LocalAgentJob | null> {
   return agentRequest("/api/jobs/current");
 }
 
+export async function getCiMonitorRecords(): Promise<CiMonitorRecordSummary[]> {
+  return agentRequest("/api/ci1302/records");
+}
+
+export async function getCiMonitorRecord(id: string): Promise<LocalAgentJob> {
+  return agentRequest(`/api/ci1302/records/${encodeURIComponent(id)}`);
+}
+
 export async function startLocalAgentJob(input: {
   action: LocalAgentJobAction;
   boardId: LocalAgentJob["boardId"];
   port?: string;
+  monitorMode?: CiMonitorMode;
 }): Promise<LocalAgentJob> {
   return agentRequest("/api/jobs", {
     method: "POST",
@@ -358,6 +510,11 @@ export async function stopLocalAgentJob(jobId: string): Promise<LocalAgentJob> {
 export async function runLlmModuleTest(input: {
   deviceId: string;
   text: string;
+  conversationId?: string;
+  providerId?: string;
+  llmTemperature?: number;
+  llmMaxOutputTokens?: number;
+  llmHistoryTurns?: number;
 }): Promise<LlmModuleTestResult> {
   return request("/api/development/module-tests/llm", {
     method: "POST",
@@ -365,21 +522,51 @@ export async function runLlmModuleTest(input: {
   });
 }
 
+export async function runVoicePipelineText(input: {
+  deviceId: string;
+  text: string;
+  conversationId?: string;
+  providerId?: string;
+  ttsProviderId?: string;
+  ttsVoice?: string;
+  llmTemperature?: number;
+  llmMaxOutputTokens?: number;
+  llmHistoryTurns?: number;
+}): Promise<VoicePipelineResponse> {
+  return request("/api/voice/pipeline/test", {
+    method: "POST",
+    body: JSON.stringify({ ...input, inputSource: "TEXT_SIMULATION", simulateOffline: "MISS", applyToDevice: false, synthesizeSpeech: true }),
+  });
+}
+
+export async function resetVoiceConversation(deviceId: string, channel: "pipeline" | "llm-test"): Promise<{ reset: true }> {
+  return request("/api/voice/conversations/reset", {
+    method: "POST",
+    body: JSON.stringify({ deviceId, channel }),
+  });
+}
+
 export async function runTtsModuleTest(input: {
   deviceId?: string;
   text: string;
   target: "BROWSER";
+  providerId?: string;
+  voice?: string;
 }): Promise<BrowserTtsTestResult>;
 export async function runTtsModuleTest(input: {
   deviceId: string;
   text: string;
   target: "DEVICE";
   volumePercent: number;
+  providerId?: string;
+  voice?: string;
 }): Promise<DeviceAudioTestResult>;
 export async function runTtsModuleTest(input: {
   deviceId?: string;
   text: string;
   target: "BROWSER" | "DEVICE";
+  providerId?: string;
+  voice?: string;
 }): Promise<BrowserTtsTestResult | DeviceAudioTestResult> {
   return request("/api/development/module-tests/tts", {
     method: "POST",
@@ -419,6 +606,45 @@ export async function getBoardLabRequest(requestId: string): Promise<BoardLabReq
 
 export async function getAiServiceConfiguration(): Promise<AiServiceConfiguration> {
   return request("/api/development/ai-services");
+}
+
+export async function getCatalogVendors(): Promise<CatalogVendor[]> {
+  return request("/api/providers/catalog/vendors");
+}
+
+export async function saveCatalogApiKey(vendor: CatalogVendorId, apiKey: string): Promise<{ configured: boolean }> {
+  return request(`/api/providers/catalog/${vendor}/api-key`, {
+    method: "PUT",
+    body: JSON.stringify({ apiKey }),
+  });
+}
+
+export async function getCatalogModels(vendor: CatalogVendorId): Promise<CatalogModels> {
+  return request(`/api/providers/catalog/${vendor}/models`);
+}
+
+export async function saveModelPricing(providerId: string, pricing: Partial<ModelProvider>): Promise<ModelProvider> {
+  return request(`/api/providers/${encodeURIComponent(providerId)}/pricing`, {
+    method: 'PUT',
+    body: JSON.stringify(pricing),
+  });
+}
+
+export async function addCatalogModel(vendor: CatalogVendorId, modelId: string): Promise<ModelProvider> {
+  return request(`/api/providers/catalog/${vendor}/models`, {
+    method: "POST",
+    body: JSON.stringify({ modelId }),
+  });
+}
+
+export async function useCatalogModel(vendor: CatalogVendorId, modelId: string): Promise<{
+  provider: ModelProvider;
+  defaults: AiServiceDefaults;
+}> {
+  return request(`/api/providers/catalog/${vendor}/default`, {
+    method: "PUT",
+    body: JSON.stringify({ modelId }),
+  });
 }
 
 export async function setDefaultAiProvider(

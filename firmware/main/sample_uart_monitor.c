@@ -16,6 +16,7 @@
 #include "mqtt_agent.h"
 #include "stm32_protocol.h"
 #include "stm32_protocol_self_test.h"
+#include "voice_engine.h"
 
 static const char *TAG = "STM32_UART";
 
@@ -30,6 +31,12 @@ static bool s_ack_pending;
 static bool s_ack_matches;
 static uint8_t s_pending_command;
 static uint8_t s_pending_value;
+static uint8_t s_control_revision;
+static bool s_ci_sequence_seen;
+static uint8_t s_ci_last_sequence;
+static uint8_t s_ci_last_event_type;
+static uint8_t s_ci_last_semantic_id;
+static TickType_t s_ci_last_tick;
 
 static void monitor_task(void *arg);
 static void handle_status_frame(const uint8_t frame[DX_STM32_FRAME_SIZE]);
@@ -159,11 +166,25 @@ int sample_uart_monitor_control_stage(void)
 #endif
 }
 
+int sample_uart_monitor_control_revision(void)
+{
+#if DX_ENABLE_SAMPLE_UART_MONITOR
+    if (!s_ready) return -1;
+    portENTER_CRITICAL(&s_ack_lock);
+    int revision = s_control_revision;
+    portEXIT_CRITICAL(&s_ack_lock);
+    return revision;
+#else
+    return -1;
+#endif
+}
+
 esp_err_t sample_uart_monitor_execute_action(
     const char *code,
     const char *value,
     int target_temperature,
     int duration_minutes,
+    int expected_revision,
     uint8_t out_frame[DX_STM32_FRAME_SIZE]
 )
 {
@@ -172,6 +193,7 @@ esp_err_t sample_uart_monitor_execute_action(
     (void)value;
     (void)target_temperature;
     (void)duration_minutes;
+    (void)expected_revision;
     (void)out_frame;
     return ESP_ERR_NOT_SUPPORTED;
 #else
@@ -212,6 +234,14 @@ esp_err_t sample_uart_monitor_execute_action(
     while (xSemaphoreTake(s_ack_signal, 0) == pdTRUE) {
     }
     portENTER_CRITICAL(&s_ack_lock);
+    if (expected_revision >= 0 && expected_revision != s_control_revision) {
+        portEXIT_CRITICAL(&s_ack_lock);
+        xSemaphoreGive(s_command_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    out_frame[13] = 0xC2U;
+    out_frame[14] = expected_revision >= 0 ? (uint8_t)expected_revision : s_control_revision;
+    out_frame[29] = dx_stm32_frame_checksum(out_frame);
     s_pending_command = request.command;
     s_pending_value = request.value;
     s_ack_matches = false;
@@ -314,6 +344,40 @@ static void handle_status_frame(const uint8_t frame[DX_STM32_FRAME_SIZE])
     dx_stm32_status_t status;
     if (!dx_stm32_decode_status_frame(frame, DX_STM32_FRAME_SIZE, &status)) {
         ESP_LOGW(TAG, "Validated frame could not be decoded");
+        return;
+    }
+
+    portENTER_CRITICAL(&s_ack_lock);
+    s_control_revision = status.control_revision;
+    portEXIT_CRITICAL(&s_ack_lock);
+
+    if (status.ci_event_type != DX_STM32_CI_EVENT_NONE) {
+        /* A repeated UART event is not a second user utterance. Allow the same
+         * 8-bit sequence after a long gap so an STM32 reset does not hide it. */
+        const TickType_t now = xTaskGetTickCount();
+        if (s_ci_sequence_seen && status.ci_event_sequence == s_ci_last_sequence &&
+            status.ci_event_type == s_ci_last_event_type &&
+            status.ci_semantic_id == s_ci_last_semantic_id &&
+            (TickType_t)(now - s_ci_last_tick) < pdMS_TO_TICKS(5000)) {
+            if (apply_status_to_device_state(&status) && mqtt_agent_is_connected()) {
+                (void)mqtt_agent_report_state();
+            }
+            return;
+        }
+        s_ci_sequence_seen = true;
+        s_ci_last_sequence = status.ci_event_sequence;
+        s_ci_last_event_type = status.ci_event_type;
+        s_ci_last_semantic_id = status.ci_semantic_id;
+        s_ci_last_tick = now;
+        voice_engine_on_ci_event(status.ci_event_type);
+        (void)mqtt_agent_report_stm32_link(
+            "RX", status.ci_event_type == DX_STM32_CI_EVENT_WAKE ? "CI_WAKE" : "CI_LOCAL_APPLIED",
+            frame, DX_STM32_FRAME_SIZE, &status, true, "OBSERVED", 0, 0
+        );
+        (void)mqtt_agent_report_ci_event(&status);
+        if (apply_status_to_device_state(&status) && mqtt_agent_is_connected()) {
+            (void)mqtt_agent_report_state();
+        }
         return;
     }
 

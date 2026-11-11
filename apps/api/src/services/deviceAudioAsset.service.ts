@@ -112,7 +112,18 @@ export function convertWavToPcm16Mono(
     const start = offset + 8;
     const end = start + size;
     if (end > wav.length) {
-      throw new ApiError(502, "TTS_WAV_INVALID", "TTS WAV 数据块不完整");
+      // DashScope streaming WAV uses a near-2GB placeholder for RIFF/data lengths.
+      const streamingData =
+        id === "data" &&
+        offset === 36 &&
+        format !== null &&
+        size >= 0x7fff0000 &&
+        wav.readUInt32LE(4) === size + 36;
+      if (!streamingData) {
+        throw new ApiError(502, "TTS_WAV_INVALID", "TTS WAV 数据块不完整");
+      }
+      data = wav.subarray(start);
+      break;
     }
     if (id === "fmt " && size >= 16) {
       format = {
@@ -139,6 +150,10 @@ export function convertWavToPcm16Mono(
       "TTS_FORMAT_UNSUPPORTED",
       "仅支持 16-bit PCM WAV 音频",
     );
+  }
+
+  if (data.length % (format.channels * 2) !== 0) {
+    throw new ApiError(502, "TTS_WAV_INVALID", "TTS WAV 数据块不完整");
   }
 
   const frameCount = Math.floor(data.length / (format.channels * 2));

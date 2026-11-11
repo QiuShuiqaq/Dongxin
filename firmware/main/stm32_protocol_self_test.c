@@ -27,6 +27,59 @@ bool dx_stm32_protocol_self_test(void)
         return false;
     }
 
+    uint8_t ci_event_frame[DX_STM32_FRAME_SIZE];
+    memcpy(ci_event_frame, captured_status_frame, sizeof(ci_event_frame));
+    ci_event_frame[3] = DX_STM32_CI_EVENT_COMMAND;
+    ci_event_frame[4] = DX_STM32_CI_EVENT_WAKE;
+    ci_event_frame[13] = 0xC1U;
+    ci_event_frame[14] = DX_STM32_CI_EVENT_WAKE;
+    ci_event_frame[15] = 1U;
+    ci_event_frame[16] = 7U;
+    ci_event_frame[17] = 42U;
+    ci_event_frame[29] = dx_stm32_frame_checksum(ci_event_frame);
+    if (!dx_stm32_decode_status_frame(ci_event_frame, sizeof(ci_event_frame), &status) ||
+        status.ci_event_type != DX_STM32_CI_EVENT_WAKE ||
+        status.ci_semantic_id != 1U || status.ci_event_sequence != 7U ||
+        status.control_revision != 42U) {
+        return false;
+    }
+
+    ci_event_frame[4] = DX_STM32_CI_EVENT_LOCAL_APPLIED;
+    ci_event_frame[14] = DX_STM32_CI_EVENT_LOCAL_APPLIED;
+    ci_event_frame[15] = 2U;
+    ci_event_frame[16] = 8U;
+    ci_event_frame[17] = 43U;
+    ci_event_frame[29] = dx_stm32_frame_checksum(ci_event_frame);
+    if (!dx_stm32_decode_status_frame(ci_event_frame, sizeof(ci_event_frame), &status) ||
+        status.ci_event_type != DX_STM32_CI_EVENT_LOCAL_APPLIED ||
+        status.ci_semantic_id != 2U || status.ci_event_sequence != 8U ||
+        status.control_revision != 43U) {
+        return false;
+    }
+
+    ci_event_frame[15] = 8U;
+    ci_event_frame[29] = dx_stm32_frame_checksum(ci_event_frame);
+    if (!dx_stm32_decode_status_frame(ci_event_frame, sizeof(ci_event_frame), &status) ||
+        status.ci_semantic_id != 8U ||
+        status.ci_event_type != DX_STM32_CI_EVENT_LOCAL_APPLIED) {
+        return false;
+    }
+    ci_event_frame[15] = 11U;
+    ci_event_frame[29] = dx_stm32_frame_checksum(ci_event_frame);
+    if (!dx_stm32_decode_status_frame(ci_event_frame, sizeof(ci_event_frame), &status) ||
+        status.ci_semantic_id != 11U ||
+        status.ci_event_type != DX_STM32_CI_EVENT_LOCAL_APPLIED) {
+        return false;
+    }
+
+    /* A future unverified semantic ID must not be interpreted as a control. */
+    ci_event_frame[15] = 4U;
+    ci_event_frame[29] = dx_stm32_frame_checksum(ci_event_frame);
+    if (!dx_stm32_decode_status_frame(ci_event_frame, sizeof(ci_event_frame), &status) ||
+        status.ci_event_type != DX_STM32_CI_EVENT_NONE) {
+        return false;
+    }
+
     uint8_t damaged_frame[DX_STM32_FRAME_SIZE];
     memcpy(damaged_frame, captured_status_frame, sizeof(damaged_frame));
     damaged_frame[10] ^= 0x01U;

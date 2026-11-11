@@ -2,17 +2,30 @@ import { randomUUID } from "node:crypto";
 import type {
   VoicePipelineResponse,
   VoiceTestSession,
+  VoiceTestSettings,
+  VoiceTestTurn,
 } from "@dongxin/shared";
 import { VoiceTestSessionSchema } from "@dongxin/shared";
 import { z } from "zod";
-import { readJsonFile, writeJsonFile } from "../storage.js";
+import { readJsonFile, updateJsonFile } from "../storage.js";
+import { retainRecent, retentionSettings } from '../runtime/retention.js';
 
 const FILE_NAME = "voice-test-sessions.json";
-let mutationQueue: Promise<unknown> = Promise.resolve();
 
 export async function listVoiceTestSessions(): Promise<VoiceTestSession[]> {
   const sessions = await readJsonFile<VoiceTestSession[]>(FILE_NAME, []);
-  return z.array(VoiceTestSessionSchema).parse(sessions);
+  return pruneVoiceTestSessions(z.array(VoiceTestSessionSchema).parse(sessions));
+}
+
+export function pruneVoiceTestSessions(sessions: VoiceTestSession[], now = Date.now()): VoiceTestSession[] {
+  const settings = retentionSettings();
+  const withoutAudio = (result: VoicePipelineResponse): VoicePipelineResponse => ({ ...result, ttsAudioBase64: null });
+  return retainRecent(sessions, (item) => item.updatedAt, settings.testSessions, now).map((session) => ({
+    ...session,
+    result: session.result ? withoutAudio(session.result) : null,
+    turns: retainRecent(session.turns, (turn) => turn.at, settings.testTurns, now)
+      .map((turn) => ({ ...turn, result: withoutAudio(turn.result) })),
+  }));
 }
 
 export async function createVoiceTestSessionRecord(input: {
@@ -21,6 +34,8 @@ export async function createVoiceTestSessionRecord(input: {
   mode: VoiceTestSession["mode"];
   asrDatasetId?: string | null;
   expectedText?: string | null;
+  continuous?: boolean;
+  settings?: VoiceTestSettings;
 }): Promise<VoiceTestSession> {
   const now = new Date().toISOString();
   const session = VoiceTestSessionSchema.parse({
@@ -32,6 +47,9 @@ export async function createVoiceTestSessionRecord(input: {
     capturedDatasetItemId: null,
     status: "CREATED",
     recordSeconds: input.recordSeconds,
+    continuous: input.continuous ?? false,
+    settings: input.settings ?? {},
+    turns: [],
     muted: true,
     message: "测试会话已创建",
     requestedAt: now,
@@ -40,9 +58,8 @@ export async function createVoiceTestSessionRecord(input: {
     updatedAt: now,
     result: null,
   });
-  return mutate(async (sessions) => {
-    await writeJsonFile(FILE_NAME, [...sessions, session].slice(-100));
-    return session;
+  return updateJsonFile<VoiceTestSession[], VoiceTestSession>(FILE_NAME, [], (sessions) => {
+    return { value: pruneVoiceTestSessions([...sessions, session]), result: session };
   });
 }
 
@@ -55,11 +72,12 @@ export async function patchVoiceTestSession(
     completedAt: string | null;
     result: VoicePipelineResponse | null;
     capturedDatasetItemId: string | null;
+    turns: VoiceTestTurn[];
   }>,
 ): Promise<VoiceTestSession | null> {
-  return mutate(async (sessions) => {
+  return updateJsonFile<VoiceTestSession[], VoiceTestSession | null>(FILE_NAME, [], (sessions) => {
     const index = sessions.findIndex((session) => session.id === sessionId);
-    if (index < 0) return null;
+    if (index < 0) return { value: pruneVoiceTestSessions(sessions), result: null };
     const next = VoiceTestSessionSchema.parse({
       ...sessions[index],
       ...patch,
@@ -67,15 +85,6 @@ export async function patchVoiceTestSession(
     });
     const updated = [...sessions];
     updated[index] = next;
-    await writeJsonFile(FILE_NAME, updated);
-    return next;
+    return { value: pruneVoiceTestSessions(updated), result: next };
   });
-}
-
-async function mutate<T>(
-  operation: (sessions: VoiceTestSession[]) => Promise<T>,
-): Promise<T> {
-  const next = mutationQueue.then(async () => operation(await listVoiceTestSessions()));
-  mutationQueue = next.catch(() => undefined);
-  return next;
 }

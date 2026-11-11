@@ -11,4 +11,12 @@ choice DX_BOARD_PROFILE
         bool "Lichuang ESP32-C3 audio board"
 endchoice
 
+config DX_CLOUD_PILOT
+    bool "Use private per-device cloud pilot configuration"
+    default n
+    help
+        Include main/device_provisioning.h, which must be created locally and
+        must not be committed. This is for a single device pilot only; mass
+        production requires a separate per-unit provisioning process.
+
 endmenu

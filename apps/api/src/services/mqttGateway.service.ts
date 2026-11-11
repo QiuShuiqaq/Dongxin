@@ -2,6 +2,13 @@ import { randomUUID } from 'node:crypto';
 import type { DeviceCommandRecord } from '@dongxin/shared';
 import mqtt, { type MqttClient } from 'mqtt';
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { TaskScheduler } from '../runtime/scheduler.js';
+import { RequestReplay } from '../runtime/requestReplay.js';
+import { limitSetting } from '../runtime/limits.js';
+import { isCommandCurrent } from '../runtime/commandGuard.js';
+import { assertWorkActive } from '../runtime/workload.js';
 import { listDeviceCommands, patchDeviceCommand } from '../repositories/system.repository.js';
 import {
   commandToPollingResponse,
@@ -23,7 +30,13 @@ const EnvelopeSchema = z.object({
 
 let client: MqttClient | null = null;
 let connected = false;
-let upstreamQueue: Promise<void> = Promise.resolve();
+const upstream = new TaskScheduler({
+  concurrency: limitSetting('MQTT_UPSTREAM_CONCURRENCY', 4),
+  maxWaiting: limitSetting('MQTT_UPSTREAM_QUEUE_LENGTH', 256, 0),
+  maxWaitMs: limitSetting('MQTT_UPSTREAM_QUEUE_WAIT_MS', 5000),
+  perKeyWaiting: 16,
+});
+const upstreamReplay = new RequestReplay(2048, 1024 * 1024, 60_000);
 let gatewayLog: Parameters<typeof startMqttGateway>[0] | null = null;
 
 export function startMqttGateway(log: {
@@ -44,7 +57,9 @@ export function startMqttGateway(log: {
     clean: true,
     keepalive: 60,
     connectTimeout: 5000,
-    reconnectPeriod: 3000
+    reconnectPeriod: 3000,
+    ...(process.env.MQTT_CA_FILE ? { ca: readFileSync(process.env.MQTT_CA_FILE) } : {}),
+    ...(process.env.MQTT_TLS_SERVERNAME ? { servername: process.env.MQTT_TLS_SERVERNAME } : {}),
   });
 
   client.on('connect', () => {
@@ -69,11 +84,17 @@ export function startMqttGateway(log: {
     log.warn({ error, brokerUrl }, 'MQTT gateway error');
   });
   client.on('message', (topic, payload) => {
-    upstreamQueue = upstreamQueue
-      .then(() => handleUpstreamMessage(topic, payload))
-      .catch((error) => {
-        log.error({ error, topic }, 'MQTT upstream message rejected');
-      });
+    // Bound retained buffers before parsing; never build an unbounded Promise chain.
+    if (payload.length > 64 * 1024) {
+      log.warn({ topic, bytes: payload.length }, 'MQTT upstream payload too large');
+      return;
+    }
+    const match = topic.match(/^dongxin\/v1\/devices\/([^/]+)\/up\/([^/]+)$/);
+    if (!match) return;
+    const priority = match[2] === 'command-result' ? 2 : match[2] === 'heartbeat' ? 0 : 1;
+    void upstream.run(match[1], () => handleUpstreamMessage(topic, payload), { priority }).catch((error) => {
+      log.error({ error, topic }, 'MQTT upstream message rejected');
+    });
   });
 }
 
@@ -100,11 +121,18 @@ export function getMqttGatewayStatus() {
   return {
     enabled: process.env.MQTT_ENABLED !== 'false',
     connected,
-    brokerUrl: process.env.MQTT_URL || 'mqtt://127.0.0.1:1883'
+    brokerUrl: process.env.MQTT_URL || 'mqtt://127.0.0.1:1883',
+    upstream: upstream.snapshot(),
+    replay: upstreamReplay.snapshot(),
   };
 }
 
 export async function publishQueuedDeviceCommand(command: DeviceCommandRecord): Promise<boolean> {
+  assertWorkActive();
+  if (!isCommandCurrent(command)) {
+    await patchDeviceCommand(command.id, { status: 'FAILED', completedAt: new Date().toISOString() });
+    return false;
+  }
   if (!client || !connected || command.status !== 'QUEUED' || command.slots.delivery === 'direct-response') {
     return false;
   }
@@ -138,6 +166,8 @@ export async function publishVoiceTestControl(input: {
   testSessionId: string;
   action: 'start' | 'stop';
   recordSeconds: number;
+  continuous?: boolean;
+  settings?: import('@dongxin/shared').VoiceTestSettings;
   mode: 'FULL_PIPELINE' | 'ASR_ONLY' | 'CI_WAKE_ONLINE_FALLBACK';
 }): Promise<void> {
   const envelope = {
@@ -150,6 +180,8 @@ export async function publishVoiceTestControl(input: {
       action: input.action,
       testSessionId: input.testSessionId,
       recordSeconds: input.recordSeconds,
+      continuous: input.continuous ?? false,
+      settings: input.settings,
       synthesizeSpeech: false,
       mode: input.mode
     }
@@ -167,6 +199,7 @@ export async function publishAudioTestControl(input: {
   action: 'play' | 'stop';
   audioPath?: string;
   volumePercent?: number;
+  listenAfterPlayback?: boolean;
 }): Promise<void> {
   const envelope = {
     version: '1.0',
@@ -178,7 +211,8 @@ export async function publishAudioTestControl(input: {
       action: input.action,
       testId: input.testId,
       audioPath: input.audioPath ?? null,
-      volumePercent: input.volumePercent ?? null
+      volumePercent: input.volumePercent ?? null,
+      listenAfterPlayback: input.listenAfterPlayback ?? false
     }
   };
   await publish(
@@ -225,11 +259,27 @@ async function handleUpstreamMessage(topic: string, payload: Buffer): Promise<vo
     throw new Error(`Topic device ${topicDeviceId} does not match payload device ${envelope.deviceId}`);
   }
 
-  const body = { deviceId: topicDeviceId, ...envelope.data };
+  if (envelope.data.deviceId !== undefined && envelope.data.deviceId !== topicDeviceId) {
+    throw new Error('MQTT data deviceId does not match topic');
+  }
+  // A broker-generated will has a fixed message ID but represents every new disconnect.
+  if (messageType === 'status' && envelope.messageId === 'lwt' && envelope.sentAt === 'broker' &&
+      typeof envelope.data.state === 'object' && envelope.data.state !== null &&
+      'isOnline' in envelope.data.state && envelope.data.state.isOnline === false) {
+    await dispatchUpstreamMessage(topicDeviceId, messageType, envelope.data);
+    return;
+  }
+  const fingerprint = createHash('sha256').update(JSON.stringify(envelope.data)).digest('hex');
+  return upstreamReplay.run(JSON.stringify([topicDeviceId, messageType, envelope.messageId]), fingerprint,
+    () => dispatchUpstreamMessage(topicDeviceId, messageType, envelope.data));
+}
+
+async function dispatchUpstreamMessage(deviceId: string, messageType: string, data: Record<string, unknown>): Promise<void> {
+  const body = { ...data, deviceId };
   switch (messageType) {
     case 'register':
       await registerDeviceAccess(body, 'MQTT');
-      await publishPendingCommands(gatewayLog, topicDeviceId);
+      await publishPendingCommands(gatewayLog, deviceId);
       return;
     case 'heartbeat':
       await handleDeviceHeartbeat(body);

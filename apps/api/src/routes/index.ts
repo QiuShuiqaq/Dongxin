@@ -21,11 +21,17 @@ import { registerAiTestingRoutes } from './aiTesting.routes.js';
 import { registerAuthRoutes } from './auth.routes.js';
 import { registerBoardLabRoutes } from './boardLab.routes.js';
 import { registerStm32LinkRoutes } from './stm32Link.routes.js';
+import { registerOperationsAiValidationRoutes } from './operationsAiValidation.routes.js';
+import { registerOperationsAiServicesRoutes } from './operationsAiServices.routes.js';
+import { registerOperationsVoiceHistoryRoutes } from './operationsVoiceHistory.routes.js';
 
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await registerHealthRoutes(server);
   await registerAuthRoutes(server);
   await registerConsoleRoutes(server);
+  await registerOperationsAiValidationRoutes(server);
+  await registerOperationsAiServicesRoutes(server);
+  await registerOperationsVoiceHistoryRoutes(server);
   await registerAiTestingRoutes(server);
   await registerBoardLabRoutes(server);
   await registerStm32LinkRoutes(server);

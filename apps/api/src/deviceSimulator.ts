@@ -12,7 +12,8 @@ const initialState: DeviceState = {
   updatedAt: new Date().toISOString()
 };
 
-let currentState: DeviceState = initialState;
+function createSimulator(isDefault: boolean) {
+let currentState: DeviceState = { ...initialState, activeModes: [], isOnline: isDefault };
 
 const exclusiveModeIntents = new Set<DeviceIntent>([
   'HEAT_WEAK_ON',
@@ -47,11 +48,11 @@ function removeMode(intent: DeviceIntent) {
   };
 }
 
-export function getDeviceState(): DeviceState {
-  return currentState;
+function getDeviceState(): DeviceState {
+  return structuredClone(currentState);
 }
 
-export function patchDeviceState(patch: Partial<DeviceState>): DeviceState {
+function patchDeviceState(patch: Partial<DeviceState>): DeviceState {
   // Device reports are partial; missing fields must not erase known state.
   const definedPatch = Object.fromEntries(
     Object.entries(patch).filter(([, value]) => value !== undefined),
@@ -64,7 +65,7 @@ export function patchDeviceState(patch: Partial<DeviceState>): DeviceState {
   return currentState;
 }
 
-export function applyDeviceCommand(intent: DeviceIntent, slots: Record<string, unknown> = {}): DeviceState {
+function applyDeviceCommand(intent: DeviceIntent, slots: Record<string, unknown> = {}): DeviceState {
   switch (intent) {
     case 'STANDBY':
       currentState = {
@@ -207,4 +208,40 @@ function setHeatingModes(
 
 function uniqueModes(modes: DeviceIntent[]): DeviceIntent[] {
   return [...new Set(modes)];
+}
+return { getDeviceState, patchDeviceState, applyDeviceCommand };
+}
+
+const DEFAULT_ID = 'demo-bath-heater-001';
+const devices = new Map<string, ReturnType<typeof createSimulator>>();
+const revisions = new Map<string, number>();
+function device(id: string) {
+  let value = devices.get(id);
+  if (!value) { value = createSimulator(id === DEFAULT_ID); devices.set(id, value); }
+  return value;
+}
+export function getDeviceState(deviceId = DEFAULT_ID): DeviceState { return device(deviceId).getDeviceState(); }
+export function getDeviceControlRevision(deviceId: string): number { return revisions.get(deviceId) ?? 0; }
+export function bumpDeviceControlRevision(deviceId: string): number {
+  const revision = getDeviceControlRevision(deviceId) + 1;
+  revisions.set(deviceId, revision);
+  return revision;
+}
+export function patchDeviceState(
+  patch: Partial<DeviceState>,
+  deviceId = DEFAULT_ID,
+  options: { bumpRevision?: boolean } = {},
+): DeviceState {
+  const before = device(deviceId).getDeviceState();
+  const next = device(deviceId).patchDeviceState(patch);
+  if (options.bumpRevision !== false &&
+      (JSON.stringify([...before.activeModes].sort()) !== JSON.stringify([...next.activeModes].sort()) ||
+       before.targetTemperature !== next.targetTemperature || before.faultCode !== next.faultCode)) {
+    bumpDeviceControlRevision(deviceId);
+  }
+  return structuredClone(next);
+}
+export function applyDeviceCommand(intent: DeviceIntent, slots: Record<string, unknown> = {}, deviceId = DEFAULT_ID): DeviceState {
+  bumpDeviceControlRevision(deviceId);
+  return structuredClone(device(deviceId).applyDeviceCommand(intent, slots));
 }

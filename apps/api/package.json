@@ -7,19 +7,29 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "start": "tsx src/index.ts"
+    "start": "tsx src/index.ts",
+    "db:plan": "tsx src/cli/migrate.ts",
+    "db:migrate": "tsx src/cli/migrate.ts --apply",
+    "db:provision-device": "tsx src/cli/provisionDevice.ts",
+    "db:retention": "tsx src/cli/retention.ts",
+    "verify:db": "node --import tsx --test src/runtime/postgres.test.ts src/runtime/migrations.test.ts src/repositories/postgresCommands.repository.test.ts src/repositories/postgresDevices.repository.test.ts src/repositories/postgresDeviceState.repository.test.ts src/repositories/postgresStateReport.repository.test.ts src/repositories/postgresEvents.repository.test.ts src/repositories/postgresLocalControl.repository.test.ts src/repositories/postgresOperations.repository.test.ts src/repositories/postgresCredentials.repository.test.ts src/repositories/postgresVoice.repository.test.ts src/repositories/postgresRetention.repository.test.ts"
   },
   "dependencies": {
     "@dongxin/shared": "file:../../packages/shared",
     "@fastify/cors": "^11.2.0",
     "dotenv": "^17.2.3",
+    "fast-xml-parser": "^5.11.2",
     "fastify": "^5.6.2",
+    "fflate": "^0.8.3",
     "mqtt": "^5.14.1",
+    "pdf-parse": "^2.4.5",
+    "pg": "^8.23.1",
+    "tsx": "^4.21.0",
     "zod": "^4.2.1"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
-    "tsx": "^4.21.0",
+    "@types/pg": "^8.15.5",
     "typescript": "^5.9.3"
   }
 }

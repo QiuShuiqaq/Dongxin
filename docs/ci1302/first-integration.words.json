@@ -1,0 +1,12 @@
+{
+  "version": "0.1",
+  "headers": ["语义标签", "命令词", "功能类型", "播报语句", "播报模式", "发送协议", "接收协议"],
+  "rows": [
+    { "id": 1, "word": "小东小东", "type": "唤醒词", "reply": "我在", "mode": "主", "action": "WAKE" },
+    { "id": 2, "word": "打开照明", "type": "命令词", "reply": "收到", "mode": "被", "action": "LIGHT_ON" },
+    { "id": 3, "word": "关闭照明", "type": "命令词", "reply": "收到", "mode": "被", "action": "LIGHT_OFF" },
+    { "id": 4, "word": "打开吹风", "type": "命令词", "reply": "收到", "mode": "被", "action": "FAN_ON" },
+    { "id": 5, "word": "关闭吹风", "type": "命令词", "reply": "收到", "mode": "被", "action": "FAN_OFF" },
+    { "id": 6, "word": "全部关闭", "type": "命令词", "reply": "收到", "mode": "被", "action": "ALL_OFF" }
+  ]
+}

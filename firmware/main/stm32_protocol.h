@@ -7,6 +7,13 @@
 
 #define DX_STM32_FRAME_SIZE 32U
 #define DX_STM32_PRODUCT_TYPE 0x07U
+#define DX_STM32_CI_EVENT_COMMAND 0xD0U
+
+typedef enum {
+    DX_STM32_CI_EVENT_NONE = 0,
+    DX_STM32_CI_EVENT_WAKE = 1,
+    DX_STM32_CI_EVENT_LOCAL_APPLIED = 2,
+} dx_stm32_ci_event_t;
 
 typedef enum {
     DX_STM32_COMMAND_STATUS = 0x00,
@@ -43,6 +50,10 @@ typedef struct {
     bool dry;
     bool mode_active;
     bool network_control_enabled;
+    uint8_t ci_event_type;
+    uint8_t ci_semantic_id;
+    uint8_t ci_event_sequence;
+    uint8_t control_revision;
 } dx_stm32_status_t;
 
 typedef struct {

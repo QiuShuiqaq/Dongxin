@@ -4,13 +4,13 @@ const { formatMode } = require('../../utils/format');
 Page({
   data: {
     settings: null,
+    error: '',
     modeText: '',
     modes: [
       { label: '实用提醒', value: 'PRACTICAL' },
       { label: '轻松模式', value: 'RELAXED' },
       { label: '安静模式', value: 'QUIET' }
-    ],
-    lastDecision: null
+    ]
   },
 
   onShow() {
@@ -18,12 +18,13 @@ Page({
   },
 
   async loadData() {
-    const data = await api.getBootstrap();
-    const settings = data.proactiveSettings;
-    this.setData({
-      settings,
-      modeText: formatMode(settings.mode)
-    });
+    try {
+      const settings = await api.getProactiveSettings();
+      if (!settings) throw new Error('服务端未返回主动沟通设置');
+      this.setData({ settings, modeText: formatMode(settings.mode), error: '' });
+    } catch (error) {
+      this.setData({ settings: null, error: error.message || '读取设置失败' });
+    }
   },
 
   async toggleEnabled(event) {
@@ -67,20 +68,17 @@ Page({
 
   async saveQuietHours() {
     await this.saveSettings(this.data.settings);
-    wx.showToast({ title: '已保存', icon: 'success' });
   },
 
   async saveSettings(settings) {
-    const nextSettings = await api.updateProactiveSettings(settings);
-    this.setData({
-      settings: nextSettings,
-      modeText: formatMode(nextSettings.mode)
-    });
-  },
-
-  async previewEnter() {
-    const decision = await api.triggerProactiveEvent('OCCUPANCY_ENTER');
-    this.setData({ lastDecision: decision });
+    try {
+      const nextSettings = await api.updateProactiveSettings(settings);
+      this.setData({ settings: nextSettings, modeText: formatMode(nextSettings.mode) });
+      wx.showToast({ title: '已保存', icon: 'success' });
+    } catch (error) {
+      wx.showToast({ title: error.message || '保存失败', icon: 'none' });
+      await this.loadData();
+    }
   }
 });
 

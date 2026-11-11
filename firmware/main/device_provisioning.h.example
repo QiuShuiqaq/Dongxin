@@ -1,0 +1,17 @@
+#ifndef DX_DEVICE_PROVISIONING_H
+#define DX_DEVICE_PROVISIONING_H
+
+/* Single-device cloud pilot only. Copy to device_provisioning.h locally and
+ * replace every placeholder. Never commit the populated header or share a
+ * secret between devices. Use only after public TLS and device provisioning
+ * have been verified on the server. */
+#define DX_DEVICE_ID "REPLACE_WITH_UNIQUE_DEVICE_ID"
+#define DX_DEVICE_MODEL "DX-AI-BATH-C3-LICHUANG-AUDIO"
+#define DX_WIFI_SSID "REPLACE_WITH_WIFI_SSID"
+#define DX_WIFI_PASSWORD "REPLACE_WITH_WIFI_PASSWORD"
+#define DX_GATEWAY_BASE_URL "https://api.zjdongxin.net"
+#define DX_MQTT_BROKER_URI "mqtts://api.zjdongxin.net:8883"
+#define DX_MQTT_DEVICE_SECRET "REPLACE_WITH_UNIQUE_MQTT_SECRET"
+#define DX_DEVICE_HTTP_SECRET "REPLACE_WITH_UNIQUE_HTTP_SECRET"
+
+#endif

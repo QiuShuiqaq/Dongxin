@@ -1,5 +1,9 @@
 <view class="page">
-  <view class="section section-card">
+  <view wx:if="{{error}}" class="section section-card">
+    <text>{{error}}</text>
+    <button class="ghost-btn mini-btn" bindtap="loadData">重试</button>
+  </view>
+  <view wx:if="{{settings}}" class="section section-card">
     <view class="row-between">
       <view>
         <text class="section-title">主动沟通</text>
@@ -9,7 +13,7 @@
     </view>
   </view>
 
-  <view class="section section-card">
+  <view wx:if="{{settings}}" class="section section-card">
     <text class="section-title">模式</text>
     <radio-group bindchange="changeMode">
       <label wx:for="{{modes}}" wx:key="value" class="mode-row">
@@ -22,7 +26,7 @@
     </radio-group>
   </view>
 
-  <view class="section section-card">
+  <view wx:if="{{settings}}" class="section section-card">
     <view class="row-between">
       <view>
         <text class="section-title">安静时段</text>
@@ -38,14 +42,5 @@
     <button class="primary-btn" bindtap="saveQuietHours">保存时段</button>
   </view>
 
-  <view class="section section-card">
-    <text class="section-title">触发预览</text>
-    <view class="divider"></view>
-    <button class="ghost-btn" bindtap="previewEnter">人感进入</button>
-    <view wx:if="{{lastDecision}}" class="preview-result">
-      <text class="strong">{{lastDecision.reason}}</text>
-      <text class="section-subtitle">{{lastDecision.shouldSpeak ? lastDecision.speak : '无播报'}}</text>
-    </view>
-  </view>
 </view>
 

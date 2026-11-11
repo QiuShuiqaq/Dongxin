@@ -19,7 +19,7 @@ const LoginInputSchema = z.object({
 const TokenClaimsSchema = z.object({
   sub: z.string().min(1),
   name: z.string().min(1),
-  role: z.literal("ADMIN"),
+  role: z.enum(["ADMIN", "EDITOR", "REVIEWER"]),
   iat: z.number().int().nonnegative(),
   exp: z.number().int().positive(),
   jti: z.string().uuid(),
@@ -32,7 +32,7 @@ const PasswordHashSchema = z
 export type OperationsUser = {
   username: string;
   displayName: string;
-  role: "ADMIN";
+  role: "ADMIN" | "EDITOR" | "REVIEWER";
 };
 
 export type OperationsAuthStatus = {
@@ -54,6 +54,9 @@ export function getOperationsAuthStatus(): OperationsAuthStatus {
 }
 
 export function assertOperationsAuthConfiguration(): void {
+  if (process.env.NODE_ENV === 'production' && authMode() === 'DISABLED') {
+    throw new Error('Production requires OPS_AUTH_MODE=enabled');
+  }
   if (authMode() === "DISABLED") return;
   if (!hasCompleteProductionConfiguration()) {
     throw new Error(
@@ -79,11 +82,12 @@ export function loginOperationsUser(input: unknown): {
   }
   assertOperationsAuthConfiguration();
 
-  const expectedUsername = requiredEnv("OPS_ADMIN_USERNAME");
-  const validUsername = constantTimeTextEqual(body.username, expectedUsername);
+  const account = configuredUsers().find((user) => constantTimeTextEqual(body.username, user.username));
+  const expectedUsername = account?.username ?? requiredEnv("OPS_ADMIN_USERNAME");
+  const validUsername = Boolean(account);
   const validPassword = verifyPassword(
     body.password,
-    requiredEnv("OPS_ADMIN_PASSWORD_HASH"),
+    account?.passwordHash ?? requiredEnv("OPS_ADMIN_PASSWORD_HASH"),
   );
   if (!validUsername || !validPassword) {
     throw new ApiError(401, "INVALID_CREDENTIALS", "账号或密码错误");
@@ -92,8 +96,8 @@ export function loginOperationsUser(input: unknown): {
   const now = Math.floor(Date.now() / 1000);
   const claims = TokenClaimsSchema.parse({
     sub: expectedUsername,
-    name: process.env.OPS_ADMIN_DISPLAY_NAME?.trim() || "平台管理员",
-    role: "ADMIN",
+    name: account!.displayName,
+    role: account!.role,
     iat: now,
     exp: now + TOKEN_LIFETIME_SECONDS,
     jti: randomUUID(),
@@ -122,7 +126,27 @@ export function authenticateOperationsRequest(
   }
 
   const claims = verifyToken(match[1]);
+  if (!configuredUsers().some((user) => user.username === claims.sub && user.role === claims.role)) {
+    throw new ApiError(401, "ACCOUNT_CHANGED", "账号权限已变更，请重新登录");
+  }
   return claimsToUser(claims);
+}
+
+export function requireOperationsRole(authorization: string | undefined, roles: OperationsUser['role'][]): OperationsUser {
+  const user = authenticateOperationsRequest(authorization);
+  if (!roles.includes(user.role)) throw new ApiError(403, 'FORBIDDEN', '当前账号没有此操作权限');
+  return user;
+}
+
+function configuredUsers() {
+  const extra = z.array(z.object({
+    username: z.string().trim().min(1).max(64), displayName: z.string().trim().min(1).max(100),
+    role: z.enum(['EDITOR', 'REVIEWER']), passwordHash: PasswordHashSchema,
+  })).parse(JSON.parse(process.env.OPS_KNOWLEDGE_USERS || '[]'));
+  const admin = { username: requiredEnv('OPS_ADMIN_USERNAME'), displayName: process.env.OPS_ADMIN_DISPLAY_NAME?.trim() || '平台管理员',
+    role: 'ADMIN' as const, passwordHash: requiredEnv('OPS_ADMIN_PASSWORD_HASH') };
+  if (new Set([admin.username, ...extra.map((user) => user.username)]).size !== extra.length + 1) throw new Error('员工账号不能重名');
+  return [admin, ...extra];
 }
 
 export function getLocalOperationsSession(): {
@@ -155,6 +179,7 @@ function authMode(): "DISABLED" | "ENABLED" {
 }
 
 function hasCompleteProductionConfiguration(): boolean {
+  try { configuredUsers(); } catch { return false; }
   const username = process.env.OPS_ADMIN_USERNAME?.trim();
   const passwordHash = process.env.OPS_ADMIN_PASSWORD_HASH?.trim();
   const tokenSecret = process.env.OPS_AUTH_TOKEN_SECRET?.trim();

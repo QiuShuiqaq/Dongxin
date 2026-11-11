@@ -1,30 +1,37 @@
 import 'dotenv/config';
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:net';
+import { createServer as createTlsServer } from 'node:tls';
+import { readFileSync } from 'node:fs';
 import Aedes, { type Client } from 'aedes';
+import type { Pool } from 'pg';
+import { brokerPostgresConfig, createBrokerCredentialPool } from './postgresCredentials.js';
+import { authenticateBrokerIdentity } from './identity.js';
 
 const host = process.env.MQTT_HOST || '0.0.0.0';
-const port = Number(process.env.MQTT_PORT || 1883);
-const brokerMode = process.env.MQTT_BROKER_MODE === 'production' ? 'production' : 'development';
+const brokerMode = process.env.NODE_ENV === 'production' || process.env.MQTT_BROKER_MODE === 'production' ? 'production' : 'development';
+const port = Number(process.env.MQTT_PORT || (brokerMode === 'production' ? 8883 : 1883));
 const gatewayUsername = process.env.MQTT_GATEWAY_USERNAME || 'gateway';
 const gatewayPassword = process.env.MQTT_GATEWAY_PASSWORD || 'dongxin-local-gateway';
-const deviceCredentials = readDeviceCredentials();
+const authBackend = process.env.MQTT_DEVICE_AUTH_BACKEND || 'json';
+const deviceCredentials = authBackend === 'json' ? readDeviceCredentials() : new Map<string, string>();
 assertBrokerConfiguration();
+const credentialPool: Pool | null = authBackend === 'postgres' ? createBrokerCredentialPool() : null;
+let pendingAuthentications = 0;
 const broker = new Aedes();
 
 broker.authenticate = (client, usernameBuffer, passwordBuffer, done) => {
   const username = usernameBuffer?.toString() || '';
   const password = passwordBuffer?.toString() || '';
-  const isGateway =
-    client.id === 'dongxin-api-gateway' &&
-    secureTextEqual(username, gatewayUsername) &&
-    secureTextEqual(password, gatewayPassword);
-  const expectedDeviceSecret = deviceCredentials.get(username);
-  const isDevice =
-    client.id === username &&
-    expectedDeviceSecret !== undefined &&
-    secureTextEqual(password, expectedDeviceSecret);
-  done(null, isGateway || isDevice);
+  if (credentialPool && client.id !== 'dongxin-api-gateway' && pendingAuthentications >= 256) return done(null, false);
+  if (credentialPool && client.id !== 'dongxin-api-gateway') pendingAuthentications++;
+  void authenticateBrokerIdentity(client.id, username, password, {
+    gatewayUsername, gatewayPassword, deviceCredentials, credentialPool,
+  })
+    .then((allowed) => done(null, allowed), (error: Error) => {
+      console.error('[mqtt] credential lookup failed', error);
+      done(null, false);
+    })
+    .finally(() => { if (credentialPool && client.id !== 'dongxin-api-gateway') pendingAuthentications--; });
 };
 
 broker.authorizePublish = (client, packet, done) => {
@@ -55,11 +62,21 @@ broker.on('clientError', (client, error) => {
   console.warn(`[mqtt] client error client=${client?.id || 'unknown'} message=${error.message}`);
 });
 
-const tcpServer = createServer(broker.handle);
+const tcpServer = brokerMode === 'production'
+  ? createTlsServer({
+      key: readFileSync(process.env.MQTT_TLS_KEY_FILE!),
+      cert: readFileSync(process.env.MQTT_TLS_CERT_FILE!),
+      minVersion: 'TLSv1.2',
+    }, broker.handle)
+  : createServer(broker.handle);
+if (credentialPool) {
+  await credentialPool.query('SELECT 1');
+  credentialPool.on('error', (error) => console.error('[mqtt] credential database pool error', error));
+}
 tcpServer.listen(port, host, () => {
-  console.log(`[mqtt] Dongxin local broker listening at mqtt://${host}:${port}`);
+  console.log(`[mqtt] Dongxin broker listening at ${brokerMode === 'production' ? 'mqtts' : 'mqtt'}://${host}:${port}`);
   console.log(`[mqtt] broker mode: ${brokerMode}`);
-  console.log(`[mqtt] provisioned development devices: ${[...deviceCredentials.keys()].join(', ')}`);
+  if (!credentialPool) console.log(`[mqtt] provisioned development devices: ${[...deviceCredentials.keys()].join(', ')}`);
 });
 
 function isGatewayClient(client: Client | null): boolean {
@@ -91,8 +108,13 @@ function readDeviceCredentials(): Map<string, string> {
 }
 
 function assertBrokerConfiguration(): void {
+  if (!['json', 'postgres'].includes(authBackend)) throw new Error('MQTT_DEVICE_AUTH_BACKEND must be json or postgres');
+  if (authBackend === 'postgres') brokerPostgresConfig();
   if (brokerMode !== 'production') return;
-  if (!process.env.MQTT_DEVICE_CREDENTIALS) {
+  if (!process.env.MQTT_TLS_KEY_FILE || !process.env.MQTT_TLS_CERT_FILE) {
+    throw new Error('Production broker requires MQTT_TLS_KEY_FILE and MQTT_TLS_CERT_FILE');
+  }
+  if (authBackend === 'json' && !process.env.MQTT_DEVICE_CREDENTIALS) {
     throw new Error('Production broker requires explicit MQTT_DEVICE_CREDENTIALS');
   }
   if (
@@ -102,18 +124,18 @@ function assertBrokerConfiguration(): void {
   ) {
     throw new Error('Production broker requires non-default gateway credentials');
   }
-  if (deviceCredentials.size === 0) {
+  if (authBackend === 'json' && deviceCredentials.size === 0) {
     throw new Error('Production broker has no provisioned device credentials');
+  }
+  if (authBackend === 'json' && deviceCredentials.size > 20) {
+    throw new Error('JSON-backed MQTT authentication is limited to 20 pilot devices');
   }
   for (const [deviceId, secret] of deviceCredentials) {
     if (deviceId.length > 128 || secret.length < 20) {
       throw new Error(`Invalid production credential for device ${deviceId}`);
     }
   }
-}
-
-function secureTextEqual(actual: string, expected: string): boolean {
-  const actualDigest = createHash('sha256').update(actual).digest();
-  const expectedDigest = createHash('sha256').update(expected).digest();
-  return timingSafeEqual(actualDigest, expectedDigest);
+  if (new Set(deviceCredentials.values()).size !== deviceCredentials.size) {
+    throw new Error('Production devices must have independent MQTT secrets');
+  }
 }

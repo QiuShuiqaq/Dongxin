@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="920" viewBox="0 0 1600 920" role="img" aria-labelledby="title desc">
+  <title id="title">东信智能浴霸AI项目当前系统架构</title>
+  <desc id="desc">现有STM32样机经UART连接ESP32-C3，C3使用独立音频和Wi-Fi连接服务端。CI1302为后续接入模块。图中明确区分已有单项依据与尚待验证的完整功能。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10" fill="none" stroke="#47617b" stroke-width="1.5"/></marker>
+  </defs>
+  <rect width="1600" height="920" rx="24" fill="#f5f7fb"/>
+  <g font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif">
+    <text x="64" y="79" font-size="37" font-weight="700" fill="#15314f">当前实施方案与验证边界</text>
+    <text x="64" y="121" font-size="22" fill="#5b6f83">资料截至 2026-10-21 · 已接入的单项能力不等于全部功能通过验证</text>
+    <rect x="64" y="190" width="405" height="275" rx="15" fill="white" stroke="#cbd7e4" stroke-width="2"/>
+    <rect x="64" y="190" width="405" height="9" rx="4" fill="#287a6f"/>
+    <text x="90" y="246" font-size="30" font-weight="700" fill="#15314f">现有浴霸样机 · STM32</text>
+    <text x="90" y="294" font-size="23" fill="#364e65">保留原有负载、显示、遥控</text>
+    <text x="90" y="333" font-size="23" fill="#364e65">及基础安全逻辑</text>
+    <text x="90" y="389" font-size="22" fill="#287a6f">照明、吹风：实际动作与回执</text>
+    <text x="90" y="425" font-size="22" fill="#9a6928">其余动作、恒温：待验证</text>
+    <rect x="599" y="190" width="402" height="275" rx="15" fill="white" stroke="#cbd7e4" stroke-width="2"/>
+    <rect x="599" y="190" width="402" height="9" rx="4" fill="#315b9c"/>
+    <text x="625" y="246" font-size="30" font-weight="700" fill="#15314f">ESP32-C3</text>
+    <text x="625" y="294" font-size="23" fill="#364e65">联网、状态同步、样机协议</text>
+    <text x="625" y="333" font-size="23" fill="#364e65">独立音频Codec与麦克风</text>
+    <text x="625" y="389" font-size="22" fill="#287a6f">采音、在线识别：已有记录</text>
+    <text x="625" y="425" font-size="22" fill="#9a6928">完整语音交互：待验证</text>
+    <rect x="1131" y="190" width="405" height="275" rx="15" fill="white" stroke="#cbd7e4" stroke-width="2"/>
+    <rect x="1131" y="190" width="405" height="9" rx="4" fill="#315b9c"/>
+    <text x="1157" y="246" font-size="30" font-weight="700" fill="#15314f">AI服务端与平台</text>
+    <text x="1157" y="294" font-size="23" fill="#364e65">识别 / 规则 / 知识库</text>
+    <text x="1157" y="333" font-size="23" fill="#364e65">大模型 / 语音合成 / 记录</text>
+    <text x="1157" y="389" font-size="22" fill="#287a6f">AI单项接口：已连通</text>
+    <text x="1157" y="425" font-size="22" fill="#9a6928">本地运行，云部署待完成</text>
+    <line x1="485" y1="329" x2="583" y2="329" stroke="#47617b" stroke-width="3" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <text x="534" y="298" text-anchor="middle" font-size="21" fill="#47617b">UART</text>
+    <line x1="1017" y1="329" x2="1115" y2="329" stroke="#47617b" stroke-width="3" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <text x="1066" y="298" text-anchor="middle" font-size="21" fill="#47617b">Wi-Fi</text>
+    <rect x="64" y="575" width="405" height="190" rx="15" fill="#f0f2f6" stroke="#94a2b2" stroke-width="2" stroke-dasharray="9 6"/>
+    <text x="90" y="627" font-size="28" font-weight="700" fill="#5a6a7d">CI1302 · 后续接入</text>
+    <text x="90" y="672" font-size="23" fill="#5a6a7d">独立麦克风：唤醒、固定命令</text>
+    <text x="90" y="717" font-size="21" fill="#5a6a7d">输出事件与语义ID，不输出在线音频</text>
+    <path d="M469 650 H800 V481" fill="none" stroke="#94a2b2" stroke-width="3" stroke-dasharray="9 6" marker-end="url(#arrow)"/>
+    <text x="590" y="626" font-size="21" fill="#5a6a7d">UART事件 / 语义ID</text>
+    <rect x="1000" y="575" width="536" height="190" rx="15" fill="white" stroke="#cbd7e4" stroke-width="2"/>
+    <text x="1028" y="627" font-size="28" font-weight="700" fill="#15314f">扬声器与功放</text>
+    <text x="1028" y="675" font-size="23" fill="#364e65">由C3独立音频链路播放</text>
+    <text x="1028" y="718" font-size="22" fill="#9a6928">整机语音回复与播放效果待验证</text>
+    <path d="M955 481 V520 H1265 V560" fill="none" stroke="#47617b" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="1080" y="505" font-size="21" fill="#47617b">Codec / 音频播放</text>
+    <text x="64" y="839" font-size="22" fill="#5b6f83">现有主控功能为本次开发基础；本次新增工作聚焦联网、AI、语音和平台。</text>
+    <text x="64" y="879" font-size="22" fill="#5b6f83">本图为功能架构图，不作为硬件原理图、引脚分配图或整机验收结论。</text>
+  </g>
+</svg>

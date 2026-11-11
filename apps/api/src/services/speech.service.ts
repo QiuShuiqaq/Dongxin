@@ -1,8 +1,14 @@
 import { performance } from "node:perf_hooks";
+import { createHash } from 'node:crypto';
 import type { ModelProvider } from "@dongxin/shared";
 import { isEnvConfigured } from "../envStore.js";
 import { getProductionCostSettings } from "../repositories/productionCost.repository.js";
 import { findProviderForService, getDefaultProviderForService, listProviders } from "./provider.service.js";
+import { runAiWork, currentWorkSignal } from '../runtime/workload.js';
+import { speechCache } from '../runtime/ttsCache.js';
+import { SingleFlight } from '../runtime/singleFlight.js';
+
+const pendingSpeech = new SingleFlight(32);
 
 export interface SpeechResult {
   status: "COMPLETED" | "NOT_CONFIGURED" | "FAILED";
@@ -15,6 +21,7 @@ export interface SpeechResult {
   costCny: number;
   isEstimated: boolean;
   error: string | null;
+  cacheHit?: boolean;
 }
 
 type SpeechServiceType = "ASR" | "TTS";
@@ -41,11 +48,15 @@ interface SpeechConfig {
   audioFormat: string | undefined;
 }
 
-export async function transcribeAudio(input: {
+type AsrInput = {
   audioBase64: string;
   mimeType: string;
   providerId?: string;
-}): Promise<SpeechResult> {
+};
+export function transcribeAudio(input: AsrInput): Promise<SpeechResult> {
+  return runAiWork('ASR', () => executeTranscription(input));
+}
+async function executeTranscription(input: AsrInput): Promise<SpeechResult> {
   const started = performance.now();
   const provider = await resolveSpeechProvider("ASR", input.providerId);
   const config = provider
@@ -121,17 +132,24 @@ export async function transcribeAudio(input: {
   }
 }
 
-export async function synthesizeSpeech(input: {
+type TtsInput = {
   text: string;
   providerId?: string;
   audioFormat?: string;
-}): Promise<SpeechResult> {
+  voice?: string;
+};
+export async function synthesizeSpeech(input: TtsInput): Promise<SpeechResult> {
   const started = performance.now();
   const provider = await resolveSpeechProvider("TTS", input.providerId);
   const config = provider
     ? resolveProviderConfig(provider, "TTS")
     : resolveLegacyConfig("TTS", "audio/mp3");
   const outputFormat = input.audioFormat || config.audioFormat || "mp3";
+  if (input.voice && (!provider?.baseUrl?.includes('dashscope.aliyuncs.com') ||
+      !provider.baseUrl.includes('/SpeechSynthesizer'))) {
+    return failedResult(started, provider, new Error('当前服务商未开放单次音色覆盖'), input.text);
+  }
+  if (input.voice) config.voice = input.voice;
 
   if (!config.url || (provider?.apiKeyEnv && !config.apiKey)) {
     return notConfiguredResult(
@@ -143,6 +161,22 @@ export async function synthesizeSpeech(input: {
     );
   }
 
+  currentWorkSignal()?.throwIfAborted();
+  const key = createHash('sha256').update(JSON.stringify({ providerId: provider?.id, config, outputFormat, text: input.text })).digest('hex');
+  const cacheable = input.text.length <= 200;
+  const cached = cacheable ? speechCache.get(key) : undefined;
+  if (cached) return { ...cached, latencyMs: Math.round(performance.now() - started), costCny: 0, cacheHit: true };
+  // Only share independent requests. A cancellable voice turn must retain its
+  // own signal and cannot cancel a different device's synthesis.
+  const synthesize = () => runAiWork('TTS', () => executeSynthesis(input, provider, config, outputFormat));
+  const result = cacheable && !currentWorkSignal() ? await pendingSpeech.run(key, key, synthesize) : await synthesize();
+  if (cacheable && result.status === 'COMPLETED') speechCache.set(key, result);
+  return result;
+}
+
+async function executeSynthesis(input: TtsInput, provider: ModelProvider | null, config: SpeechConfig, outputFormat: string): Promise<SpeechResult> {
+  const started = performance.now();
+
   try {
     const response = isDashScopeTts(config)
       ? await requestJson({
@@ -152,7 +186,7 @@ export async function synthesizeSpeech(input: {
           body: buildDashScopeTtsBody(config, input.text, outputFormat),
         })
       : await requestJson({
-          url: buildSpeechUrl(config.url, config.protocol, "TTS"),
+          url: buildSpeechUrl(config.url!, config.protocol, "TTS"),
           apiKey: config.apiKey,
           timeoutMs: provider?.timeoutMs,
           body: {
@@ -366,7 +400,7 @@ async function requestJson(input: {
   try {
     const response = await fetch(input.url, {
       method: "POST",
-      signal: controller.signal,
+      signal: currentWorkSignal() ? AbortSignal.any([controller.signal, currentWorkSignal()!]) : controller.signal,
       headers: {
         ...(input.apiKey ? { Authorization: `Bearer ${input.apiKey}` } : {}),
         "Content-Type": "application/json",
@@ -511,7 +545,9 @@ async function fetchAudioAsBase64(
     return null;
   }
 
-  const response = await fetch(audioUrl);
+  const deadline = AbortSignal.timeout(8000);
+  const parent = currentWorkSignal();
+  const response = await fetch(audioUrl, { signal: parent ? AbortSignal.any([parent, deadline]) : deadline });
   if (!response.ok) {
     throw new Error(`TTS audio download returned ${response.status}`);
   }

@@ -83,7 +83,7 @@ export const ModelProviderSchema = z.object({
   apiKeyEnv: z.string().nullable().optional(),
   apiKeyUrl: z.string().url().nullable().optional(),
   timeoutMs: z.number().int().positive().default(8000),
-  maxOutputTokens: z.number().int().positive().max(1024).default(128),
+  maxOutputTokens: z.number().int().positive().max(2048).default(512),
   inputPricePerMTokens: z.number().nullable().optional(),
   outputPricePerMTokens: z.number().nullable().optional(),
   billingMode: AsrBillingModeSchema.optional(),
@@ -95,6 +95,8 @@ export const ModelProviderSchema = z.object({
   pricePer10KCharsCny: z.number().nonnegative().optional(),
   averageCharsPerRequest: z.number().positive().optional(),
   averageSecondsPerRequest: z.number().positive().optional(),
+  pricingSourceUrl: z.string().url().optional(),
+  pricingUpdatedAt: z.string().datetime().optional(),
   voice: z.string().optional(),
   audioFormat: z.string().optional(),
   responseTextPath: z.string().optional(),
@@ -467,7 +469,7 @@ export const AsrDatasetSchema = z.object({
 });
 export type AsrDataset = z.infer<typeof AsrDatasetSchema>;
 
-export const BatchTestKindSchema = z.enum(["ASR", "LLM", "TTS"]);
+export const BatchTestKindSchema = z.enum(["ASR", "LLM", "TTS", "PIPELINE"]);
 export type BatchTestKind = z.infer<typeof BatchTestKindSchema>;
 
 export const BatchTestStatusSchema = z.enum([
@@ -699,6 +701,7 @@ export type DeviceStateReportRequest = z.infer<
 >;
 
 export const DeviceAccessEventTypeSchema = z.enum([
+  "CI_WAKE",
   "OCCUPANCY_ENTER",
   "OCCUPANCY_LEAVE",
   "OCCUPANCY_STAY",
@@ -707,15 +710,30 @@ export const DeviceAccessEventTypeSchema = z.enum([
   "LONG_RUNNING",
   "FAULT",
   "COMMAND_RESULT",
+  "LOCAL_CONTROL",
 ]);
 export type DeviceAccessEventType = z.infer<typeof DeviceAccessEventTypeSchema>;
 
+// Prepared for STM32 local-control forwarding; no vendor UART bytes are implied.
+export const LocalControlEventPayloadSchema = z.object({
+  source: z.enum(["CI1302", "REMOTE", "PANEL"]),
+  intent: DeviceIntentSchema.optional(),
+  state: DeviceCloudStateSchema.optional(),
+});
+
 export const DeviceAccessEventRequestSchema = z.object({
   deviceId: z.string().min(1),
-  eventId: z.string().min(1).optional(),
+  eventId: z.string().min(1).max(128).optional(),
   eventType: DeviceAccessEventTypeSchema,
   occurredAt: z.string().optional(),
   payload: z.record(z.string(), z.unknown()).default({}),
+}).superRefine((event, context) => {
+  if (event.eventType !== "LOCAL_CONTROL") return;
+  if (!event.eventId) context.addIssue({ code: "custom", path: ["eventId"], message: "本地操作事件必须携带唯一 eventId" });
+  const payload = LocalControlEventPayloadSchema.safeParse(event.payload);
+  if (!payload.success) {
+    for (const issue of payload.error.issues) context.addIssue({ code: "custom", path: ["payload", ...issue.path], message: issue.message });
+  }
 });
 export type DeviceAccessEventRequest = z.infer<
   typeof DeviceAccessEventRequestSchema
@@ -846,6 +864,7 @@ export type VoicePipelineCost = z.infer<typeof VoicePipelineCostSchema>;
 export const VoicePipelineRequestSchema = z
   .object({
     deviceId: z.string().min(1).default("demo-bath-heater-001"),
+    conversationId: z.string().uuid().optional(),
     inputSource: VoicePipelineInputSourceSchema.default("TEXT_SIMULATION"),
     text: z.string().trim().optional(),
     audioBase64: z.string().min(1).optional(),
@@ -853,10 +872,16 @@ export const VoicePipelineRequestSchema = z
     providerId: z.string().min(1).optional(),
     asrProviderId: z.string().min(1).optional(),
     ttsProviderId: z.string().min(1).optional(),
+    ttsVoice: z.string().regex(/^[a-zA-Z0-9_.-]{1,64}$/).optional(),
     promptId: z.string().min(1).optional(),
+    llmTemperature: z.number().min(0).max(1).optional(),
+    llmMaxOutputTokens: z.number().int().min(256).max(2048).optional(),
+    llmHistoryTurns: z.number().int().min(0).max(12).optional(),
     applyToDevice: z.boolean().default(false),
-    simulateOffline: z.enum(["AUTO", "HIT", "MISS"]).default("AUTO"),
+    simulateOffline: z.enum(["AUTO", "HIT", "MISS"]).default("MISS"),
     requireWakeWord: z.boolean().default(false),
+    ciWakeAcknowledged: z.boolean().default(false),
+    deviceControlRevision: z.number().int().min(0).max(255).optional(),
     synthesizeSpeech: z.boolean().default(true),
     testMode: z.enum(["FULL_PIPELINE", "ASR_ONLY"]).default("FULL_PIPELINE"),
   })
@@ -882,6 +907,7 @@ export type VoiceModuleTestMode = z.infer<typeof VoiceModuleTestModeSchema>;
 
 export const VoicePipelineResponseSchema = z.object({
   sessionId: z.string(),
+  conversationId: z.string().uuid().optional(),
   inputSource: VoicePipelineInputSourceSchema,
   transcript: z.string().nullable(),
   replyText: z.string(),
@@ -902,9 +928,11 @@ export type VoicePipelineResponse = z.infer<typeof VoicePipelineResponseSchema>;
 export const VoiceTestSessionStatusSchema = z.enum([
   "CREATED",
   "COMMAND_SENT",
+  "WAITING",
   "RECORDING",
   "UPLOADING",
   "PROCESSING",
+  "PLAYING",
   "STOPPING",
   "COMPLETED",
   "CANCELLED",
@@ -913,6 +941,30 @@ export const VoiceTestSessionStatusSchema = z.enum([
 export type VoiceTestSessionStatus = z.infer<
   typeof VoiceTestSessionStatusSchema
 >;
+
+export const VoiceTestSettingsSchema = z.object({
+  endpointSilenceMs: z.number().int().min(400).max(2000).default(800),
+  idleTimeoutMs: z.number().int().min(10000).max(120000).default(30000),
+  maxUtteranceSeconds: z.number().int().min(3).max(12).default(12),
+  voiceThreshold: z.number().int().min(100).max(3000).default(350),
+  noiseMultiplier: z.number().min(2).max(8).default(3),
+  asrProviderId: z.string().min(1).optional(),
+  llmProviderId: z.string().min(1).optional(),
+  ttsProviderId: z.string().min(1).optional(),
+  ttsVoice: z.string().regex(/^[a-zA-Z0-9_.-]{1,64}$/).optional(),
+  llmTemperature: z.number().min(0).max(1).default(0),
+  llmMaxOutputTokens: z.number().int().min(256).max(2048).default(512),
+  llmHistoryTurns: z.number().int().min(0).max(12).default(6),
+});
+export type VoiceTestSettings = z.infer<typeof VoiceTestSettingsSchema>;
+
+export const VoiceTestTurnSchema = z.object({
+  id: z.string().uuid(),
+  at: z.string(),
+  durationMs: z.number().int().nonnegative(),
+  result: VoicePipelineResponseSchema,
+});
+export type VoiceTestTurn = z.infer<typeof VoiceTestTurnSchema>;
 
 export const VoiceTestSessionSchema = z.object({
   id: z.string().uuid(),
@@ -923,6 +975,9 @@ export const VoiceTestSessionSchema = z.object({
   capturedDatasetItemId: z.string().uuid().nullable().default(null),
   status: VoiceTestSessionStatusSchema,
   recordSeconds: z.number().int().min(1).max(30),
+  continuous: z.boolean().default(false),
+  settings: VoiceTestSettingsSchema.default(VoiceTestSettingsSchema.parse({})),
+  turns: z.array(VoiceTestTurnSchema).default([]),
   muted: z.literal(true),
   message: z.string(),
   requestedAt: z.string(),
@@ -1016,10 +1071,30 @@ export const KnowledgeCategorySchema = z.enum([
 ]);
 export type KnowledgeCategory = z.infer<typeof KnowledgeCategorySchema>;
 
-export const KnowledgeDocumentStatusSchema = z.enum(["DRAFT", "PUBLISHED"]);
+export const KnowledgeDocumentStatusSchema = z.enum(["DRAFT", "IN_REVIEW", "PUBLISHED", "ARCHIVED"]);
 export type KnowledgeDocumentStatus = z.infer<
   typeof KnowledgeDocumentStatusSchema
 >;
+
+export const KnowledgeScopeSchema = z.enum(["COMPANY", "GENERAL", "MODEL", "REFERENCE"]);
+export type KnowledgeScope = z.infer<typeof KnowledgeScopeSchema>;
+
+export const KnowledgeSourceSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  fileName: z.string().min(1),
+  relativePath: z.string().min(1),
+  kind: z.enum(["PRESENTATION", "DOCUMENT", "MANUAL", "SPREADSHEET", "MEDIA_GROUP", "ARCHIVE"]),
+  processingStatus: z.enum(["EXTRACTED", "NEEDS_OCR", "CATALOGUED", "DUPLICATE"]),
+  note: z.string().default(""),
+  scope: KnowledgeScopeSchema.optional(),
+  storageKey: z.string().optional(),
+  sha256: z.string().optional(),
+  sizeBytes: z.number().int().nonnegative().optional(),
+  createdAt: z.string().optional(),
+  createdBy: z.string().optional(),
+});
+export type KnowledgeSource = z.infer<typeof KnowledgeSourceSchema>;
 
 export const KnowledgeDocumentSchema = z.object({
   id: z.string(),
@@ -1028,25 +1103,44 @@ export const KnowledgeDocumentSchema = z.object({
   content: z.string().min(1),
   tags: z.array(z.string()).default([]),
   status: KnowledgeDocumentStatusSchema,
+  scope: KnowledgeScopeSchema.optional(),
+  modelIds: z.array(z.string().min(1)).optional(),
+  questionVariants: z.array(z.string().min(1)).optional(),
+  sourceId: z.string().nullable().optional(),
+  sourceLocation: z.string().optional(),
+  sourceSectionId: z.string().optional(),
+  supersedesId: z.string().nullable().optional(),
+  revision: z.number().int().positive().optional(),
+  version: z.number().int().positive().optional(),
+  updatedBy: z.string().optional(),
+  reviewedBy: z.string().nullable().optional(),
+  reviewedAt: z.string().nullable().optional(),
+  publishedAt: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 export type KnowledgeDocument = z.infer<typeof KnowledgeDocumentSchema>;
 
 export const CreateKnowledgeDocumentRequestSchema = z.object({
-  title: z.string().min(1),
+  title: z.string().trim().min(1).max(200),
   category: KnowledgeCategorySchema,
-  content: z.string().min(1),
-  tags: z.array(z.string()).default([]),
-  status: KnowledgeDocumentStatusSchema.default("PUBLISHED"),
+  content: z.string().trim().min(1).max(30_000),
+  tags: z.array(z.string().trim().min(1).max(50)).max(30).default([]),
+  status: KnowledgeDocumentStatusSchema.default("DRAFT"),
+  scope: KnowledgeScopeSchema.default("GENERAL"),
+  modelIds: z.array(z.string().min(1)).default([]),
+  questionVariants: z.array(z.string().trim().min(1).max(200)).max(30).default([]),
+  sourceId: z.string().nullable().default(null),
+  sourceLocation: z.string().default(""),
 });
 export type CreateKnowledgeDocumentRequest = z.infer<
   typeof CreateKnowledgeDocumentRequestSchema
 >;
 
 export const KnowledgeQueryRequestSchema = z.object({
-  question: z.string().min(1),
+  question: z.string().trim().min(1).max(2000),
   category: KnowledgeCategorySchema.optional(),
+  model: z.string().min(1).optional(),
   limit: z.number().int().positive().max(10).default(3),
 });
 export type KnowledgeQueryRequest = z.infer<typeof KnowledgeQueryRequestSchema>;
@@ -1057,6 +1151,9 @@ export const KnowledgeHitSchema = z.object({
   category: KnowledgeCategorySchema,
   score: z.number(),
   snippet: z.string(),
+  scope: KnowledgeScopeSchema.optional(),
+  sourceId: z.string().nullable().optional(),
+  sourceLocation: z.string().optional(),
 });
 export type KnowledgeHit = z.infer<typeof KnowledgeHitSchema>;
 
@@ -1064,6 +1161,10 @@ export const KnowledgeQueryResponseSchema = z.object({
   answer: z.string(),
   hits: z.array(KnowledgeHitSchema),
   usedFallback: z.boolean(),
+  route: z.enum(["FAQ", "RAG", "FALLBACK"]).optional(),
+  reason: z.string().optional(),
+  providerId: z.string().nullable().optional(),
+  latencyMs: z.number().nonnegative().optional(),
 });
 export type KnowledgeQueryResponse = z.infer<
   typeof KnowledgeQueryResponseSchema
@@ -1078,8 +1179,8 @@ export const ProactiveSettingsSchema = z.object({
   minIntervalMinutes: z.number().int().positive(),
   quietHours: z.object({
     enabled: z.boolean(),
-    start: z.string(),
-    end: z.string(),
+    start: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+    end: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   }),
   updatedAt: z.string(),
 });

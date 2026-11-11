@@ -36,7 +36,15 @@
 #endif
 #endif
 
-#if DX_TARGET_BOARD == DX_BOARD_S3
+#if defined(CONFIG_DX_CLOUD_PILOT) && CONFIG_DX_CLOUD_PILOT
+#include "device_provisioning.h"
+#if !defined(DX_DEVICE_ID) || !defined(DX_DEVICE_MODEL) || \
+    !defined(DX_WIFI_SSID) || !defined(DX_WIFI_PASSWORD) || \
+    !defined(DX_GATEWAY_BASE_URL) || !defined(DX_MQTT_BROKER_URI) || \
+    !defined(DX_MQTT_DEVICE_SECRET) || !defined(DX_DEVICE_HTTP_SECRET)
+#error "Cloud pilot requires complete private device_provisioning.h"
+#endif
+#elif DX_TARGET_BOARD == DX_BOARD_S3
 #define DX_DEVICE_ID "DX-S3-DEVKIT-001"
 #define DX_DEVICE_MODEL "DX-AI-BATH-S3-DEV"
 #elif DX_TARGET_BOARD == DX_BOARD_C3_LICHUANG_AUDIO
@@ -93,10 +101,8 @@
 #define DX_DRY_MAX_MINUTES 60
 #define DX_COMMAND_QUEUE_DEPTH 8
 
-/*
- * Use the computer's LAN IP during local testing.
- * Do not use localhost or 127.0.0.1 because those point to the C3 itself.
- */
+/* Local development defaults; cloud pilot values come from the private header. */
+#if !defined(CONFIG_DX_CLOUD_PILOT) || !CONFIG_DX_CLOUD_PILOT
 #define DX_WIFI_SSID "TP-LINK_3DB722"
 /* TP-LINK_3DB722 is an open network, so the password stays empty. */
 #define DX_WIFI_PASSWORD ""
@@ -106,7 +112,6 @@
 #define DX_WIFI_BSSID {0xC8, 0x94, 0xBB, 0xB0, 0xA3, 0xAC}
 #define DX_GATEWAY_BASE_URL "http://192.168.16.146:3077"
 #define DX_MQTT_BROKER_URI "mqtt://192.168.16.146:1883"
-#define DX_MQTT_USERNAME DX_DEVICE_ID
 /* Development credential only. Production credentials are provisioned per device. */
 #if DX_TARGET_BOARD == DX_BOARD_S3
 #define DX_MQTT_DEVICE_SECRET "dongxin-local-s3-001"
@@ -115,10 +120,16 @@
 #else
 #define DX_MQTT_DEVICE_SECRET "dongxin-local-c3-001"
 #endif
+#define DX_DEVICE_HTTP_SECRET DX_MQTT_DEVICE_SECRET
+#endif
+#ifndef DX_WIFI_LOCK_BSSID
+#define DX_WIFI_LOCK_BSSID 0
+#endif
+#define DX_MQTT_USERNAME DX_DEVICE_ID
 #define DX_MQTT_KEEPALIVE_SECONDS 60
 
-#define DX_HEARTBEAT_INTERVAL_SECONDS 30
-#define DX_STATE_REPORT_INTERVAL_SECONDS 30
+#define DX_HEARTBEAT_INTERVAL_SECONDS 900
+#define DX_STATE_REPORT_INTERVAL_SECONDS 3600
 #define DX_COMMAND_POLL_INTERVAL_SECONDS 3
 #define DX_HTTP_TIMEOUT_MS 5000
 #define DX_WIFI_CONNECT_TIMEOUT_SECONDS 30
@@ -136,7 +147,6 @@
 #define DX_LICHUANG_I2S_DIN_GPIO 7
 #define DX_LICHUANG_RECORD_BUTTON_GPIO 9
 #define DX_LICHUANG_PA_ENABLE_GPIO 13
-#define DX_LICHUANG_WAKE_ACK_VOLUME 8
 #define DX_LICHUANG_PLAYBACK_DEFAULT_VOLUME 20
 #define DX_LICHUANG_PLAYBACK_MIN_VOLUME 5
 #define DX_LICHUANG_PLAYBACK_MAX_VOLUME 80
@@ -145,6 +155,8 @@
 #define DX_VOICE_CHANNELS 1
 #define DX_VOICE_RECORD_SECONDS 6
 #define DX_VOICE_HTTP_TIMEOUT_MS 45000
+#define DX_CI_FIXED_COMMAND_GRACE_MS 700
+#define DX_CI_DIALOG_IDLE_MS 20000
 #define DX_VOICE_PCM_URL \
     DX_GATEWAY_BASE_URL "/api/device/v1/voice-pcm?deviceId=" DX_DEVICE_ID \
     "&sampleRate=16000&bitsPerSample=16&channels=1&requireWakeWord=1&synthesizeSpeech=1&testMode=FULL_PIPELINE"
@@ -153,7 +165,7 @@
     "&sampleRate=16000&bitsPerSample=16&channels=1&requireWakeWord=0&synthesizeSpeech=0&testMode=ASR_ONLY"
 #define DX_VOICE_PCM_CI_WAKE_FALLBACK_URL \
     DX_GATEWAY_BASE_URL "/api/device/v1/voice-pcm?deviceId=" DX_DEVICE_ID \
-    "&sampleRate=16000&bitsPerSample=16&channels=1&requireWakeWord=0&synthesizeSpeech=1&testMode=FULL_PIPELINE"
+    "&sampleRate=16000&bitsPerSample=16&channels=1&requireWakeWord=0&synthesizeSpeech=1&testMode=FULL_PIPELINE&ciWake=1"
 
 /* Retired V0.2 MCU simulator protocol. Do not use these pins with the STM32
  * sample; its real protocol will be implemented in a separate adapter. */

@@ -161,7 +161,8 @@ extern void Pro_Control(unsigned char uart,unsigned char Command,unsigned char S
 extern void Beeping(uint8_t _cout,uint16_t _tmr,uint16_t _interval);		//蜂鸣器鸣叫次数
 extern void Check_BLE_Uart1(void);									//BLE   串口数据检测
 extern void Check_Homen_Uart2(void);								//鸿蒙  串口数据检测
-extern void Check_RS485_Uart3(void);								//RS485 串口数据检测
+extern void Check_CI1302_Uart3(void);
+extern void Uart_Tx_CI_Event(uint8_t event_type, uint8_t semantic_id, uint8_t event_sequence);
 extern void Tim2_Init(void);
 extern void TIM4_PWM_Init (void);
 extern void TIM3_Cap_Init (void);

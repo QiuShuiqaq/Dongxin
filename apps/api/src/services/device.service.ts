@@ -17,14 +17,18 @@ export const DeviceCommandRequestSchema = z.object({
   slots: z.record(z.string(), z.unknown()).default({})
 });
 
-export function getCurrentDeviceState(): DeviceState {
-  return getDeviceState();
+export function getCurrentDeviceState(deviceId?: string): DeviceState {
+  return getDeviceState(deviceId);
 }
 
-export function patchCurrentDeviceState(patch: Partial<DeviceState>): DeviceState {
-  return patchDeviceState(patch);
+export function patchCurrentDeviceState(
+  patch: Partial<DeviceState>,
+  deviceId?: string,
+  options?: { bumpRevision?: boolean },
+): DeviceState {
+  return patchDeviceState(patch, deviceId, options);
 }
 
-export function executeDeviceCommand(intent: DeviceIntent, slots: Record<string, unknown> = {}): DeviceState {
-  return applyDeviceCommand(intent, slots);
+export function executeDeviceCommand(intent: DeviceIntent, slots: Record<string, unknown> = {}, deviceId?: string): DeviceState {
+  return applyDeviceCommand(intent, slots, deviceId);
 }

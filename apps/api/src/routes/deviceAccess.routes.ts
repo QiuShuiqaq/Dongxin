@@ -18,6 +18,12 @@ import {
   markVoiceTestProcessing
 } from '../services/voiceTest.service.js';
 import { getDeviceVoiceReplyPcm } from '../services/deviceAudioAsset.service.js';
+import { getDeviceVolume } from '../repositories/deviceVolume.repository.js';
+import { isConversationEnd } from '../services/conversation.service.js';
+import { beginVoiceTestWork } from '../runtime/voiceTestWork.js';
+import { replayDeviceVoice } from '../runtime/requestReplay.js';
+import { DEVICE_PCM_BODY_LIMIT, wrapDevicePcmAsWav } from '../services/devicePcm.service.js';
+import { ApiError } from '../http/apiError.js';
 
 const DeviceIdQuerySchema = z.object({
   deviceId: z.string().min(1)
@@ -28,17 +34,22 @@ const PollQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(20).default(5)
 });
 
-const DevicePcmQuerySchema = z.object({
+export const DevicePcmQuerySchema = z.object({
   deviceId: z.string().min(1),
-  sampleRate: z.coerce.number().int().min(8_000).max(48_000).default(16_000),
+  sampleRate: z.coerce.number().int().refine((value) => value === 16_000, {
+    message: 'the C3 voice endpoint requires 16000 Hz PCM'
+  }).default(16_000),
   bitsPerSample: z.coerce.number().int().refine((value) => value === 16, {
-    message: 'only 16-bit PCM is supported'
+    message: 'the C3 voice endpoint requires 16-bit PCM'
   }).default(16),
-  channels: z.coerce.number().int().min(1).max(2).default(1),
+  channels: z.coerce.number().int().refine((value) => value === 1, {
+    message: 'the C3 voice endpoint requires mono PCM'
+  }).default(1),
   asrProviderId: z.string().min(1).optional(),
   providerId: z.string().min(1).optional(),
   ttsProviderId: z.string().min(1).optional(),
   requireWakeWord: z.enum(['0', '1']).default('1').transform((value) => value === '1'),
+  ciWake: z.enum(['0', '1']).default('0').transform((value) => value === '1'),
   synthesizeSpeech: z.enum(['0', '1']).default('0').transform((value) => value === '1'),
   testMode: z.enum(['FULL_PIPELINE', 'ASR_ONLY']).default('FULL_PIPELINE')
 });
@@ -70,59 +81,67 @@ export async function registerDeviceAccessRoutes(server: FastifyInstance): Promi
   );
 
   server.post('/api/device/v1/voice-turn', async (request) =>
-    ok(request, await handleDeviceAccessVoiceTurn(request.body))
+    ok(request, await replayDeviceVoice(request, () => handleDeviceAccessVoiceTurn(request.body, { recordProductionHistory: true })))
   );
 
-  server.post('/api/device/v1/voice-audio', async (request) =>
-    ok(
-      request,
-      await runVoicePipeline({
-        ...(request.body as Record<string, unknown>),
-        inputSource: 'DEVICE_AUDIO',
-        applyToDevice: true
-      })
-    )
-  );
+  server.post('/api/device/v1/voice-audio', { bodyLimit: 768 * 1024 }, async (request) => replayDeviceVoice(request, async () => {
+    const { deviceId } = DeviceIdQuerySchema.parse(request.body);
+    const result = await runVoicePipeline({
+      ...(request.body as Record<string, unknown>),
+      inputSource: 'DEVICE_AUDIO',
+      applyToDevice: true
+    }, { recordProductionHistory: true });
+    return ok(request, { ...result, volumePercent: await getDeviceVolume(deviceId) });
+  }));
 
-  server.post('/api/device/v1/voice-pcm', async (request) => {
+  server.post('/api/device/v1/voice-pcm', { bodyLimit: DEVICE_PCM_BODY_LIMIT }, async (request) => replayDeviceVoice(request, async () => {
     const query = DevicePcmQuerySchema.parse(request.query);
     if (!Buffer.isBuffer(request.body)) {
-      throw new Error('voice-pcm requires a raw PCM request body');
+      throw new ApiError(415, 'INVALID_AUDIO_CONTENT_TYPE', '设备音频必须以原始 PCM 请求体上传');
     }
 
     const testSessionId = readHeader(request, 'x-voice-test-session-id');
-    const wav = wrapPcmAsWav(
-      request.body,
-      query.sampleRate,
-      query.bitsPerSample,
-      query.channels
-    );
+    const revisionHeader = readHeader(request, 'x-stm32-control-revision');
+    const deviceControlRevision = revisionHeader === undefined ? undefined : Number(revisionHeader);
+    const wav = wrapDevicePcmAsWav(request.body);
+    const work = testSessionId ? beginVoiceTestWork(testSessionId) : null;
     try {
+      const testSession = testSessionId
+        ? await markVoiceTestProcessing(testSessionId, query.deviceId)
+        : null;
       if (testSessionId) {
-        await markVoiceTestProcessing(testSessionId);
         await archiveVoiceTestPcm(testSessionId, wav);
       }
       const result = await runVoicePipeline({
         deviceId: query.deviceId,
+        conversationId: testSession?.result?.conversationId,
         inputSource: 'DEVICE_AUDIO',
         audioBase64: wav.toString('base64'),
         mimeType: 'audio/wav',
-        asrProviderId: query.asrProviderId,
-        providerId: query.providerId,
-        ttsProviderId: query.ttsProviderId,
+        asrProviderId: testSession?.settings.asrProviderId ?? query.asrProviderId,
+        providerId: testSession?.settings.llmProviderId ?? query.providerId,
+        ttsProviderId: testSession?.settings.ttsProviderId ?? query.ttsProviderId,
+        ttsVoice: testSession?.settings.ttsVoice,
+        llmTemperature: testSession?.settings.llmTemperature,
+        llmMaxOutputTokens: testSession?.settings.llmMaxOutputTokens,
+        llmHistoryTurns: testSession?.settings.llmHistoryTurns,
         requireWakeWord: query.requireWakeWord,
+        ciWakeAcknowledged: query.ciWake,
+        deviceControlRevision,
         synthesizeSpeech: query.synthesizeSpeech,
         testMode: query.testMode,
         simulateOffline: 'MISS',
         applyToDevice: true
-      });
-      if (testSessionId) await completeVoiceTest(testSessionId, result);
-      return ok(request, result);
+      }, { signal: work?.signal, recordProductionHistory: !testSessionId });
+      if (testSessionId) await completeVoiceTest(testSessionId, result, Math.round(request.body.length / query.sampleRate / query.channels / 2 * 1000));
+      return ok(request, { ...result, endSession: isConversationEnd(result.transcript || ''), volumePercent: await getDeviceVolume(query.deviceId) });
     } catch (error) {
       if (testSessionId) await failVoiceTest(testSessionId, error);
       throw error;
+    } finally {
+      work?.dispose();
     }
-  });
+  }));
 
   server.get('/api/device/v1/voice-replies/:id/pcm', async (request, reply) => {
     const { id } = VoiceReplyParamsSchema.parse(request.params);
@@ -165,31 +184,4 @@ function readRequestId(request: FastifyRequest): string {
 function readHeader(request: FastifyRequest, name: string): string | undefined {
   const value = request.headers[name];
   return Array.isArray(value) ? value[0] : value;
-}
-
-function wrapPcmAsWav(
-  pcm: Buffer,
-  sampleRate: number,
-  bitsPerSample: number,
-  channels: number
-): Buffer {
-  const blockAlign = channels * (bitsPerSample / 8);
-  const dataLength = pcm.length - (pcm.length % blockAlign);
-  const header = Buffer.alloc(44);
-
-  header.write('RIFF', 0, 'ascii');
-  header.writeUInt32LE(36 + dataLength, 4);
-  header.write('WAVE', 8, 'ascii');
-  header.write('fmt ', 12, 'ascii');
-  header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(channels, 22);
-  header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(sampleRate * blockAlign, 28);
-  header.writeUInt16LE(blockAlign, 32);
-  header.writeUInt16LE(bitsPerSample, 34);
-  header.write('data', 36, 'ascii');
-  header.writeUInt32LE(dataLength, 40);
-
-  return Buffer.concat([header, pcm.subarray(0, dataLength)]);
 }

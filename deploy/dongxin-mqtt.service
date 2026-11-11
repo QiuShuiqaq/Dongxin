@@ -1,0 +1,29 @@
+[Unit]
+Description=Dongxin MQTT broker (loopback pilot)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=dongxin
+Group=dongxin
+WorkingDirectory=/opt/dongxin/current/apps/mqtt-broker
+Environment=DOTENV_CONFIG_PATH=/etc/dongxin/mqtt.env
+Environment=DOTENV_CONFIG_QUIET=true
+ExecStart=/opt/dongxin/node/bin/node --import tsx src/index.ts
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+MemoryMax=512M
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

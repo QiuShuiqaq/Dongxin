@@ -1,12 +1,12 @@
 import {
   AudioOutlined,
   ApiOutlined,
-  AppstoreOutlined,
   BlockOutlined,
   BuildOutlined,
   BugOutlined,
   CheckCircleFilled,
   CloudServerOutlined,
+  DashboardOutlined,
   CodeOutlined,
   ControlOutlined,
   DatabaseOutlined,
@@ -21,7 +21,6 @@ import {
   InfoCircleOutlined,
   LineChartOutlined,
   LoadingOutlined,
-  KeyOutlined,
   PauseCircleFilled,
   PoweroffOutlined,
   PlayCircleOutlined,
@@ -50,7 +49,10 @@ import type {
   ProductProfile,
   VoiceProfile,
   VoicePipelineStage,
+  VoicePipelineResponse,
   VoiceTestSession,
+  VoiceTestSettings,
+  VoiceTestTurn,
 } from "@dongxin/shared";
 import {
   Alert,
@@ -58,9 +60,11 @@ import {
   Badge,
   Button,
   Descriptions,
+  Drawer,
   Empty,
   Input,
   InputNumber,
+  Popover,
   Progress,
   Segmented,
   Select,
@@ -81,7 +85,6 @@ import {
   createAsrDataset,
   deleteAsrDataset,
   deleteBatchTestRun,
-  diagnoseAiProvider,
   getDevelopmentConsole,
   getAiServiceConfiguration,
   getAsrDatasets,
@@ -90,6 +93,7 @@ import {
   getBoardLabDeviceState,
   getBoardLabRequest,
   getDeviceAudioTest,
+  getDeviceVoiceVolume,
   getCurrentLocalAgentJob,
   getDeviceCommands,
   getDeviceState,
@@ -101,15 +105,15 @@ import {
   getVoiceTests,
   importTestSetMarkdown,
   retryFailedBatchTest,
-  saveAiProviders,
-  saveProviderApiKey,
   sendDeviceCommand,
   simulateCi1302Event,
-  setDefaultAiProvider,
   startBoardLabAction,
   startBatchTest,
   runLlmModuleTest,
+  runVoicePipelineText,
+  resetVoiceConversation,
   runTtsModuleTest,
+  saveDeviceVoiceVolume,
   startLocalAgentJob,
   startVoiceTest,
   stopLocalAgentJob,
@@ -130,22 +134,45 @@ import type {
   LocalAgentJobAction,
   LocalSerialPort,
   LlmModuleTestResult,
-  ModelProvider,
-  ProviderDiagnosticResult,
   Stm32LinkEvent,
   TestSetSummary,
 } from "./api";
+import AiServicesPage from "./AiServicesPage";
+import LiveConsolePage from './LiveConsolePage';
+import VoiceHistoryPanel from './VoiceHistoryPanel';
+import Ci1302MonitorPanel from './Ci1302MonitorPanel';
+import ProactiveSimulationPanel from './ProactiveSimulationPanel';
+import ScenarioPresetsPanel from './ScenarioPresetsPanel';
 
 type Section =
-  "overview" | "flashing" | "testing" | "aiServices" | "voice" | "batchTesting";
+  "console" | "flashing" | "testing" | "aiServices" | "voice" | "batchTesting";
 
-const sectionMeta: Record<Section, { label: string; eyebrow: string }> = {
-  overview: { label: "研发总览", eyebrow: "PROGRAM STATUS" },
-  flashing: { label: "固件与烧录", eyebrow: "LOCAL DEVICE TOOLS" },
-  testing: { label: "样机联调", eyebrow: "HARDWARE-IN-LOOP" },
-  aiServices: { label: "AI 服务配置", eyebrow: "MODEL SERVICES" },
-  voice: { label: "在线语音", eyebrow: "VOICE PIPELINE" },
-  batchTesting: { label: "批量测试与报告", eyebrow: "TEST EVIDENCE" },
+const ttsVoicesByModel: Record<string, { value: string; label: string }[]> = {
+  "cosyvoice-v3-flash": [
+    { value: "longxiaochun_v3", label: "龙小淳 · 知性女声" },
+    { value: "longxiaoxia_v3", label: "龙小夏 · 沉稳女声" },
+    { value: "longanwen_v3", label: "龙安温 · 温和女声" },
+    { value: "longanlang_v3", label: "龙安朗 · 清爽男声" },
+    { value: "longshu_v3", label: "龙书 · 沉稳男声" },
+    { value: "longwan_v3", label: "龙婉 · 柔和女声" },
+  ],
+  "qwen-audio-3.0-tts-flash": [
+    { value: "longanfengyue", label: "龙安风悦 · 自然女声" },
+    { value: "longanlingxi", label: "龙安灵希 · 甜美女声" },
+    { value: "longanxiaoxin", label: "龙安小昕 · 活泼女声" },
+    { value: "longanhuan_v3.6", label: "龙安欢 · 女声" },
+    { value: "longjielidou_v3.6", label: "龙杰力豆 · 男童声" },
+    { value: "longchuanshu_v3.6", label: "龙川叔 · 男声" },
+  ],
+};
+
+const sectionMeta: Record<Section, { label: string }> = {
+  console: { label: '控制台' },
+  flashing: { label: "固件烧录" },
+  testing: { label: "样机联调" },
+  aiServices: { label: "AI 服务" },
+  voice: { label: "语音验证" },
+  batchTesting: { label: "批量测试" },
 };
 
 const intentLabels: Record<string, string> = {
@@ -208,10 +235,10 @@ export default function DevelopmentConsole() {
   }, []);
 
   useEffect(() => {
-    if (!autoRefresh) return;
+    if (!autoRefresh || section === "aiServices" || section === "flashing") return;
     const timer = window.setInterval(() => void refresh(true), 5000);
     return () => window.clearInterval(timer);
-  }, [autoRefresh, boardId, deviceId]);
+  }, [autoRefresh, boardId, deviceId, section]);
 
   function navigate(next: Section) {
     if ((next === "voice" || next === "testing") && data) {
@@ -268,16 +295,21 @@ export default function DevelopmentConsole() {
           <div className="dev-brand-mark">DX</div>
           <div>
             <strong>东信产品研发中心</strong>
-            <span>Device Engineering</span>
           </div>
         </div>
         <nav className="dev-nav" aria-label="研发中心导航">
-          <NavGroup label="当前研发">
+          <NavGroup label="研发">
             <NavItem
-              active={section === "overview"}
-              icon={<AppstoreOutlined />}
-              label="研发总览"
-              onClick={() => navigate("overview")}
+              active={section === "console"}
+              icon={<DashboardOutlined />}
+              label="控制台"
+              onClick={() => navigate("console")}
+            />
+            <NavItem
+              active={section === "voice"}
+              icon={<SoundOutlined />}
+              label="语音验证"
+              onClick={() => navigate("voice")}
             />
             <NavItem
               active={section === "testing"}
@@ -286,88 +318,64 @@ export default function DevelopmentConsole() {
               onClick={() => navigate("testing")}
             />
             <NavItem
+              active={section === "batchTesting"}
+              icon={<DatabaseOutlined />}
+              label="批量测试"
+              onClick={() => navigate("batchTesting")}
+            />
+            <NavItem
               active={section === "flashing"}
               icon={<BuildOutlined />}
-              label="固件与烧录"
+              label="固件烧录"
               onClick={() => navigate("flashing")}
             />
           </NavGroup>
-          <NavGroup label="在线语音验证">
+          <NavGroup label="设置">
             <NavItem
               active={section === "aiServices"}
               icon={<ApiOutlined />}
-              label="AI 服务配置"
+              label="AI 服务"
               onClick={() => navigate("aiServices")}
-            />
-            <NavItem
-              active={section === "voice"}
-              icon={<SoundOutlined />}
-              label="在线语音"
-              onClick={() => navigate("voice")}
-            />
-            <NavItem
-              active={section === "batchTesting"}
-              icon={<DatabaseOutlined />}
-              label="批量测试与报告"
-              onClick={() => navigate("batchTesting")}
             />
           </NavGroup>
         </nav>
-        <div className="sidebar-status">
-          <span>
-            <Badge status={data?.mqtt.connected ? "success" : "error"} />
-            MQTT {data?.mqtt.connected ? "已连接" : "断开"}
-          </span>
-          <small>{data?.mqtt.brokerUrl || "等待API"}</small>
-        </div>
       </aside>
 
       <main className="dev-main">
         <header className="dev-header">
           <div>
-            <span className="eyebrow">{meta.eyebrow}</span>
             <h1>{meta.label}</h1>
           </div>
-          <Space size="middle">
-            <span className="refresh-control">
-              <Switch
-                size="small"
-                checked={autoRefresh}
-                onChange={setAutoRefresh}
-              />{" "}
-              自动刷新
-            </span>
-            <Tooltip title="刷新全部研发数据">
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={() => void refresh()}
-                loading={loading}
-                aria-label="刷新"
-              />
-            </Tooltip>
-          </Space>
+          {section === "console" || section === "testing" || section === "voice" || section === "batchTesting" ? (
+            <Space size="middle">
+              <span className="refresh-control">
+                <Switch size="small" checked={autoRefresh} onChange={setAutoRefresh} /> 自动刷新
+              </span>
+              <Tooltip title="刷新设备状态">
+                <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading} aria-label="刷新" />
+              </Tooltip>
+            </Space>
+          ) : null}
         </header>
-        <ContextBar
-          data={data}
-          board={board}
-          device={device}
-          boardId={boardId}
-          deviceId={deviceId}
-          onBoardChange={setBoardId}
-          onDeviceChange={(value) => {
-            setDeviceId(value);
-            void getDeviceState(value).then(setDeviceState);
-          }}
-        />
+        {section === "console" || section === "voice" || section === "testing" || section === "batchTesting" ? (
+          <ContextBar
+            data={data}
+            boardId={boardId}
+            deviceId={deviceId}
+            onBoardChange={setBoardId}
+            onDeviceChange={(value) => {
+              setDeviceId(value);
+              void getDeviceState(value).then(setDeviceState);
+            }}
+          />
+        ) : null}
 
         <div className="dev-content">
           {loading && !data ? (
             <Skeleton active paragraph={{ rows: 12 }} />
           ) : null}
-          {data && section === "overview" ? (
-            <OverviewPage data={data} board={board} device={device} />
-          ) : null}
           {data && section === "flashing" ? <FlashingPage /> : null}
+          {data && section === 'console' ? <LiveConsolePage deviceId={deviceId} traces={data.traces} autoRefresh={autoRefresh} /> : null}
           {data && board && section === "testing" ? (
             <TestingPage
               board={board}
@@ -399,8 +407,6 @@ export default function DevelopmentConsole() {
 
 function ContextBar(props: {
   data: DevelopmentConsoleData | null;
-  board: BoardProfile | null;
-  device: DeviceProfile | null;
   boardId: string;
   deviceId: string;
   onBoardChange: (value: string) => void;
@@ -408,12 +414,6 @@ function ContextBar(props: {
 }) {
   return (
     <div className="context-strip">
-      <ContextItem label="环境">
-        <Tag color="gold">本地研发</Tag>
-      </ContextItem>
-      <ContextItem label="产品">
-        {props.data?.products[0]?.model || "-"}
-      </ContextItem>
       <ContextItem label="板卡">
         <Select
           size="small"
@@ -435,12 +435,6 @@ function ContextBar(props: {
             label: item.name,
           }))}
         />
-      </ContextItem>
-      <ContextItem label="固件">
-        {props.device?.firmwareVersion || "未上报"}
-      </ContextItem>
-      <ContextItem label="执行路径">
-        <ExecutionModeTag board={props.board} />
       </ContextItem>
     </div>
   );
@@ -1172,6 +1166,7 @@ function flashActionLabel(action: LocalAgentJobAction): string {
       FLASH: "烧录已有固件",
       BUILD_FLASH: "构建并烧录",
       MONITOR: "串口监视",
+      CI_MONITOR: "CI1302 只读监听",
     } as const
   )[action];
 }
@@ -1228,26 +1223,11 @@ function TestingPage(props: {
   ];
   return (
     <div className="page-stack">
-      <Alert
-        type={stm32Adapter ? (stm32Control ? "success" : "info") : virtual ? "info" : "warning"}
-        showIcon
-        title={
-          stm32Adapter
-            ? stm32Control
-              ? `STM32双向适配器已启用：当前${heaterControl ? "完整控制" : airControl ? "风路控制" : "仅照明控制"}阶段`
-              : "当前固件仍为STM32串口只读监听"
-            : virtual
-              ? "当前为LOCAL_VIRTUAL：只验证C3内部逻辑，不驱动物理负载"
-              : "当前为物理HAL：操作前必须确认低压台架和安全隔离"
-        }
-        description={
-          stm32Adapter
-            ? stm32Control
-              ? "GPIO18发送命令，GPIO19接收状态；只有收到命令和值匹配、实际状态一致的STM32回执，平台才记录为执行成功。"
-              : "请先烧录0.8.0固件并确认第三根线，再开放控制。GPIO19状态监听仍可继续使用。"
-            : undefined
-        }
-      />
+      <div className="sample-status-bar">
+        <Badge status={stm32Adapter && stm32Control ? 'success' : stm32Adapter ? 'warning' : virtual ? 'default' : 'processing'}
+          text={stm32Adapter ? stm32Control ? `STM32 已连接 · ${heaterControl ? '取暖可控' : airControl ? '风路可控' : '仅照明可控'}` : 'STM32 只读监听' : virtual ? '本地虚拟设备' : '物理 HAL'} />
+        <span>{stm32Adapter ? '执行结果以 STM32 回执为准' : virtual ? '不会驱动样机负载' : '操作前确认低压台架和隔离'}</span>
+      </div>
       <div className="test-grid">
         <section className="workspace-section command-console">
           <SectionTitle
@@ -1421,7 +1401,7 @@ function TestingPage(props: {
           onListeningChange={setLiveListening}
         />
       ) : null}
-      <section className="workspace-section">
+      <details className="workspace-section sample-records"><summary>命令与联调记录 · {props.traces.length}</summary>
         <SectionTitle
           title="C3命令与联调记录"
           aside={
@@ -1433,7 +1413,7 @@ function TestingPage(props: {
           }
         />
         <TraceTable traces={props.traces.slice(0, 10)} />
-      </section>
+      </details>
     </div>
   );
 }
@@ -1753,9 +1733,9 @@ function BoardLabPage({
           label="网络"
           value={snapshot?.network.ip || "-"}
           detail={
-            snapshot?.network.rssi === undefined
+            !snapshot
               ? "等待读取"
-              : `RSSI ${snapshot.network.rssi} dBm`
+              : `${snapshot.network.timeSynced === undefined ? "校时未上报" : snapshot.network.timeSynced ? "已校时" : "未校时"}${snapshot.network.rssi === undefined ? "" : ` · ${snapshot.network.rssi} dBm`}`
           }
         />
         <Metric
@@ -2078,329 +2058,6 @@ function boardLabStatusLabel(status: BoardLabRequestRecord["status"]): string {
   )[status];
 }
 
-function AiServicesPage() {
-  const { message } = App.useApp();
-  const [configuration, setConfiguration] =
-    useState<AiServiceConfiguration | null>(null);
-  const [serviceType, setServiceType] = useState<"ASR" | "LLM" | "TTS">("ASR");
-  const [diagnostics, setDiagnostics] = useState<
-    Record<string, ProviderDiagnosticResult>
-  >({});
-  const [diagnosing, setDiagnosing] = useState<string | null>(null);
-  const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-
-  async function refreshConfiguration() {
-    try {
-      setConfiguration(await getAiServiceConfiguration());
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  useEffect(() => {
-    void refreshConfiguration();
-  }, []);
-
-  const providers =
-    configuration?.providers.filter(
-      (item) => item.serviceType === serviceType,
-    ) ?? [];
-  const defaultId = configuration?.defaults[serviceType] ?? null;
-
-  async function changeDefault(providerId: string) {
-    try {
-      const defaults = await setDefaultAiProvider(serviceType, providerId);
-      setConfiguration((current) =>
-        current ? { ...current, defaults } : current,
-      );
-      message.success(`${serviceType} 默认服务已更新`);
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function saveKey(provider: ModelProvider) {
-    const apiKey = keyDrafts[provider.id]?.trim();
-    if (!apiKey) return;
-    try {
-      const status = await saveProviderApiKey(provider.id, apiKey);
-      setConfiguration((current) =>
-        current
-          ? {
-              ...current,
-              secrets: current.secrets.map((item) =>
-                item.providerId === provider.id ? status : item,
-              ),
-            }
-          : current,
-      );
-      setKeyDrafts((current) => ({ ...current, [provider.id]: "" }));
-      message.success("API Key 已写入服务端，页面不会回显原文");
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function runDiagnostic(providerId: string) {
-    setDiagnosing(providerId);
-    try {
-      const result = await diagnoseAiProvider(providerId);
-      setDiagnostics((current) => ({ ...current, [providerId]: result }));
-      if (result.status === "PASSED") message.success("真实连通测试通过");
-      else message.error(result.error || "连通测试失败");
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      setDiagnosing(null);
-    }
-  }
-
-  function patchProvider(providerId: string, patch: Partial<ModelProvider>) {
-    setConfiguration((current) =>
-      current
-        ? {
-            ...current,
-            providers: current.providers.map((item) =>
-              item.id === providerId ? { ...item, ...patch } : item,
-            ),
-          }
-        : current,
-    );
-  }
-
-  async function persistProviders() {
-    if (!configuration) return;
-    setSaving(true);
-    try {
-      const next = await saveAiProviders(configuration.providers);
-      setConfiguration({ ...configuration, providers: next });
-      message.success("模型参数已保存");
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="page-stack">
-      <Alert
-        type="info"
-        showIcon
-        title="这里的默认配置会直接用于语音链路和批量测试"
-        description={configuration?.storage.detail || "正在读取服务配置"}
-      />
-      <section className="workspace-section ai-service-overview">
-        <SectionTitle
-          title="默认 AI 服务"
-          aside={
-            <Segmented
-              value={serviceType}
-              onChange={(value) => setServiceType(value as typeof serviceType)}
-              options={["ASR", "LLM", "TTS"]}
-            />
-          }
-        />
-        <div className="service-summary-grid">
-          {(["ASR", "LLM", "TTS"] as const).map((type) => {
-            const provider = configuration?.providers.find(
-              (item) => item.id === configuration.defaults[type],
-            );
-            const secret = configuration?.secrets.find(
-              (item) => item.providerId === provider?.id,
-            );
-            return (
-              <article
-                className={serviceType === type ? "active" : ""}
-                key={type}
-                onClick={() => setServiceType(type)}
-              >
-                <span>{type}</span>
-                <strong>{provider?.name || "未选择"}</strong>
-                <small>{provider?.model || "-"}</small>
-                <Badge
-                  status={
-                    secret?.isConfigured || !provider?.apiKeyEnv
-                      ? "success"
-                      : "error"
-                  }
-                  text={
-                    secret?.isConfigured || !provider?.apiKeyEnv
-                      ? "凭证已配置"
-                      : "缺少 API Key"
-                  }
-                />
-              </article>
-            );
-          })}
-        </div>
-      </section>
-      <section className="workspace-section">
-        <SectionTitle
-          title={`${serviceType} 服务参数`}
-          aside={
-            <Space>
-              <Select
-                value={defaultId ?? undefined}
-                placeholder="选择默认服务"
-                onChange={(value) => void changeDefault(value)}
-                options={providers.map((item) => ({
-                  value: item.id,
-                  label: item.name,
-                  disabled: !item.enabled,
-                }))}
-              />
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={() => void refreshConfiguration()}
-              >
-                刷新
-              </Button>
-              <Button
-                type="primary"
-                icon={<FileDoneOutlined />}
-                loading={saving}
-                onClick={() => void persistProviders()}
-              >
-                保存参数
-              </Button>
-            </Space>
-          }
-        />
-        <div className="provider-editor-list">
-          {providers.map((provider) => {
-            const secret = configuration?.secrets.find(
-              (item) => item.providerId === provider.id,
-            );
-            const diagnostic = diagnostics[provider.id];
-            return (
-              <article
-                className={`provider-editor ${provider.id === defaultId ? "default" : ""}`}
-                key={provider.id}
-              >
-                <div className="provider-editor-head">
-                  <div>
-                    <strong>{provider.name}</strong>
-                    <code>{provider.id}</code>
-                  </div>
-                  <Space>
-                    <Tag
-                      color={provider.id === defaultId ? "green" : "default"}
-                    >
-                      {provider.id === defaultId ? "默认" : "候选"}
-                    </Tag>
-                    <Switch
-                      checked={provider.enabled}
-                      onChange={(enabled) =>
-                        patchProvider(provider.id, { enabled })
-                      }
-                    />
-                  </Space>
-                </div>
-                <div className="provider-form-grid">
-                  <label>
-                    <span>模型 ID</span>
-                    <Input
-                      value={provider.model}
-                      onChange={(event) =>
-                        patchProvider(provider.id, {
-                          model: event.target.value,
-                        })
-                      }
-                    />
-                  </label>
-                  <label>
-                    <span>服务地址</span>
-                    <Input
-                      value={provider.baseUrl || ""}
-                      onChange={(event) =>
-                        patchProvider(provider.id, {
-                          baseUrl: event.target.value || null,
-                        })
-                      }
-                    />
-                  </label>
-                  <label>
-                    <span>超时（ms）</span>
-                    <InputNumber
-                      min={1000}
-                      max={120000}
-                      value={provider.timeoutMs}
-                      onChange={(value) =>
-                        value &&
-                        patchProvider(provider.id, { timeoutMs: value })
-                      }
-                    />
-                  </label>
-                  {serviceType === "TTS" ? (
-                    <label>
-                      <span>音色</span>
-                      <Input
-                        value={provider.voice || ""}
-                        onChange={(event) =>
-                          patchProvider(provider.id, {
-                            voice: event.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                  ) : null}
-                </div>
-                <div className="provider-secret-row">
-                  <Input.Password
-                    prefix={<KeyOutlined />}
-                    value={keyDrafts[provider.id] || ""}
-                    placeholder={
-                      secret?.isConfigured
-                        ? `${provider.apiKeyEnv} 已配置，输入新值可覆盖`
-                        : `配置 ${provider.apiKeyEnv || "API Key"}`
-                    }
-                    onChange={(event) =>
-                      setKeyDrafts((current) => ({
-                        ...current,
-                        [provider.id]: event.target.value,
-                      }))
-                    }
-                  />
-                  <Button
-                    disabled={!keyDrafts[provider.id]?.trim()}
-                    onClick={() => void saveKey(provider)}
-                  >
-                    保存 Key
-                  </Button>
-                  <Button
-                    icon={<ApiOutlined />}
-                    loading={diagnosing === provider.id}
-                    onClick={() => void runDiagnostic(provider.id)}
-                  >
-                    真实连通测试
-                  </Button>
-                </div>
-                {diagnostic ? (
-                  <div
-                    className={`diagnostic-result ${diagnostic.status.toLowerCase()}`}
-                  >
-                    <Badge
-                      status={
-                        diagnostic.status === "PASSED" ? "success" : "error"
-                      }
-                      text={diagnostic.status === "PASSED" ? "连通" : "失败"}
-                    />
-                    <span>{diagnostic.result}</span>
-                    <code>{diagnostic.latencyMs} ms</code>
-                    {diagnostic.error ? <p>{diagnostic.error}</p> : null}
-                  </div>
-                ) : null}
-                <p className="provider-note">{provider.notes}</p>
-              </article>
-            );
-          })}
-        </div>
-      </section>
-    </div>
-  );
-}
 
 function BatchTestingPage({ device }: { device: DeviceProfile | null }) {
   const { message, modal } = App.useApp();
@@ -3283,6 +2940,21 @@ function VoicePage({
   const voice = voices.find((item) => item.status === "RELEASED") ?? voices[0];
   const { message, modal } = App.useApp();
   const [session, setSession] = useState<VoiceTestSession | null>(null);
+  const selectedDeviceRef = useRef(device?.id);
+  selectedDeviceRef.current = device?.id;
+  const [voiceTab, setVoiceTab] = useState<'pipeline' | 'ASR' | 'LLM' | 'TTS' | 'CI1302'>('pipeline');
+  const [parametersOpen, setParametersOpen] = useState(false);
+  const [scenariosOpen, setScenariosOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [startMode, setStartMode] = useState<'FULL_PIPELINE' | 'CI_WAKE_ONLINE_FALLBACK'>('FULL_PIPELINE');
+  const [testSettings, setTestSettings] = useState<VoiceTestSettings>({
+    endpointSilenceMs: 800, idleTimeoutMs: 30000, maxUtteranceSeconds: 12,
+    voiceThreshold: 350, noiseMultiplier: 3,
+    llmTemperature: 0, llmMaxOutputTokens: 512, llmHistoryTurns: 6,
+  });
+  const [ttsPlaybackRate, setTtsPlaybackRate] = useState(1);
+  const [ttsTarget, setTtsTarget] = useState<'BROWSER' | 'DEVICE'>('BROWSER');
+  const [aiConfiguration, setAiConfiguration] = useState<AiServiceConfiguration | null>(null);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [llmText, setLlmText] = useState(
@@ -3290,8 +2962,23 @@ function VoicePage({
   );
   const [llmResult, setLlmResult] = useState<LlmModuleTestResult | null>(null);
   const [llmLoading, setLlmLoading] = useState(false);
+  const [llmTurns, setLlmTurns] = useState<VoiceConversationTurn[]>([]);
+  const [llmAudioTestId, setLlmAudioTestId] = useState<string | null>(null);
+  const llmConversationRef = useRef<string | undefined>(undefined);
+  const [pipelineText, setPipelineText] = useState("");
+  const [pipelineLoading, setPipelineLoading] = useState(false);
+  const [pipelineResult, setPipelineResult] = useState<VoicePipelineResponse | null>(null);
+  const [pipelineTurns, setPipelineTurns] = useState<VoiceConversationTurn[]>([]);
+  const [historyRevision, setHistoryRevision] = useState(0);
+  const pipelineConversationRef = useRef<string | undefined>(undefined);
+  const pipelineAudioRef = useRef<HTMLAudioElement | null>(null);
+  const observedSessionsRef = useRef(new Set<string>());
+  const [resetting, setResetting] = useState(false);
   const [ttsText, setTtsText] = useState("我在");
   const [deviceVolume, setDeviceVolume] = useState(20);
+  const [savedDeviceVolume, setSavedDeviceVolume] = useState<number | null>(null);
+  const [volumeLoading, setVolumeLoading] = useState(false);
+  const [volumeSaving, setVolumeSaving] = useState(false);
   const [ttsLoading, setTtsLoading] = useState<"BROWSER" | "DEVICE" | null>(
     null,
   );
@@ -3320,16 +3007,96 @@ function VoicePage({
   const active = Boolean(
     session && !["COMPLETED", "CANCELLED", "FAILED"].includes(session.status),
   );
+  const asrSession = session?.mode === 'ASR_ONLY' ? session : null;
+  const pipelineSession = session?.mode !== 'ASR_ONLY' ? session : null;
+  const recordedPipelineTurns = pipelineSession ? voiceSessionTurns(pipelineSession) : [];
+  const visiblePipelineTurns = pipelineResult?.inputSource === 'TEXT_SIMULATION' || !recordedPipelineTurns.length
+    ? pipelineTurns
+    : recordedPipelineTurns.map((turn) => ({
+      id: turn.result.sessionId,
+      text: turn.result.transcript || '未识别到文字',
+      reply: turn.result.replyText,
+      route: voiceRouteLabel(turn.result.route),
+      at: turn.at,
+      result: turn.result,
+    }));
   const deviceAudioActive = Boolean(
     audioTest &&
-    ["GENERATING", "COMMAND_SENT", "PLAYING"].includes(audioTest.status),
+    ["GENERATING", "COMMAND_SENT", "PLAYING", "LISTENING"].includes(audioTest.status),
   );
   const canStop = Boolean(
     session &&
-    ["CREATED", "COMMAND_SENT", "RECORDING", "UPLOADING"].includes(
+    !["COMPLETED", "CANCELLED", "FAILED", "STOPPING"].includes(
       session.status,
     ),
   );
+  const llmReplyText = llmResult?.aiResult.speak.trim() ?? "";
+  const llmReplyIsControl = llmResult?.aiResult.resultType === "DEVICE_CONTROL";
+  const llmReplyTooLong = llmReplyText.length > 100;
+  const llmAudioTest = audioTest?.id === llmAudioTestId ? audioTest : null;
+  const updateTestSettings = (patch: Partial<VoiceTestSettings>) =>
+    setTestSettings((current) => ({ ...current, ...patch }));
+
+  function exportVoiceSession() {
+    if (!session) return;
+    const turns = voiceSessionTurns(session);
+    const payload = {
+      id: session.id, deviceId: session.deviceId, mode: session.mode,
+      settings: session.settings, requestedAt: session.requestedAt,
+      completedAt: session.completedAt, status: session.status,
+      turns: turns.map((turn) => ({
+        id: turn.id, at: turn.at, durationMs: turn.durationMs,
+        transcript: turn.result.transcript, reply: turn.result.replyText,
+        route: turn.result.route, stages: turn.result.stages,
+        latencyMs: turn.result.totalLatencyMs, cost: turn.result.cost,
+        aiResult: turn.result.aiResult, safetyResult: turn.result.safetyResult,
+      })),
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `voice-test-${session.id}.json`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  useEffect(() => {
+    void getAiServiceConfiguration().then(setAiConfiguration).catch((error) => message.error(error instanceof Error ? error.message : String(error)));
+  }, []);
+
+  useEffect(() => {
+    setDeviceVolume(20);
+    setSavedDeviceVolume(null);
+    if (!device?.id) return;
+    let disposed = false;
+    setVolumeLoading(true);
+    void getDeviceVoiceVolume(device.id)
+      .then(({ volumePercent }) => {
+        if (!disposed) {
+          setDeviceVolume(volumePercent);
+          setSavedDeviceVolume(volumePercent);
+        }
+      })
+      .catch((error) => {
+        if (!disposed) message.error(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => { if (!disposed) setVolumeLoading(false); });
+    return () => { disposed = true; };
+  }, [device?.id]);
+
+  async function handleSaveDeviceVolume() {
+    if (!device) return;
+    setVolumeSaving(true);
+    try {
+      const result = await saveDeviceVoiceVolume(device.id, deviceVolume);
+      setSavedDeviceVolume(result.volumePercent);
+      message.success('开发板播报音量已保存，下次整链路回复生效');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setVolumeSaving(false);
+    }
+  }
 
   useEffect(() => {
     if (
@@ -3344,26 +3111,47 @@ function VoicePage({
 
   useEffect(() => {
     setSession(null);
+    setPipelineResult(null);
+    setPipelineTurns([]);
+    setLlmResult(null);
+    setLlmTurns([]);
+    setLlmAudioTestId(null);
+    pipelineConversationRef.current = undefined;
+    llmConversationRef.current = undefined;
+    observedSessionsRef.current.clear();
     if (!device?.id) return;
+    let disposed = false;
     void getVoiceTests(device.id)
-      .then((sessions) => setSession(sessions[0] ?? null))
+      .then((sessions) => { if (!disposed) setSession(sessions[0] ?? null); })
       .catch((error) =>
         message.error(error instanceof Error ? error.message : String(error)),
       );
+    return () => { disposed = true; };
   }, [device?.id]);
+
+  useEffect(() => {
+    if (!session?.result || session.mode === 'ASR_ONLY' || session.deviceId !== device?.id || observedSessionsRef.current.has(session.result.sessionId)) return;
+    observedSessionsRef.current.add(session.result.sessionId);
+    acceptPipelineResult(session.result);
+  }, [session?.result?.sessionId, session?.deviceId, device?.id]);
+
+  useEffect(() => {
+    if (session?.completedAt) setHistoryRevision((value) => value + 1);
+  }, [session?.completedAt]);
 
   useEffect(() => {
     if (!session) return;
     const commandPending = session.result?.commandRecord?.status === "QUEUED";
     if (!active && !commandPending) return;
+    let disposed = false;
     const timer = window.setInterval(() => {
       void getVoiceTest(session.id)
-        .then(setSession)
+        .then((next) => { if (!disposed) setSession(next); })
         .catch((error) =>
           message.error(error instanceof Error ? error.message : String(error)),
         );
     }, 600);
-    return () => window.clearInterval(timer);
+    return () => { disposed = true; window.clearInterval(timer); };
   }, [
     session?.id,
     session?.status,
@@ -3405,11 +3193,17 @@ function VoicePage({
       | "ASR_ONLY"
       | "CI_WAKE_ONLINE_FALLBACK" = "FULL_PIPELINE",
   ) {
-    if (!device) return;
+    if (!device || starting) return;
     stopBrowserPlayback(false);
+    pipelineAudioRef.current?.pause();
     setStarting(true);
     try {
-      const next = await startVoiceTest(device.id, mode);
+      const next = await startVoiceTest(device.id, mode, undefined, { continuous: true, settings: testSettings });
+      if (mode !== 'ASR_ONLY') {
+        pipelineConversationRef.current = undefined;
+        setPipelineTurns([]);
+        setPipelineResult(null);
+      }
       setSession(next);
       message.success(
         mode === "ASR_ONLY"
@@ -3426,16 +3220,83 @@ function VoicePage({
   }
 
   async function handleLlmTest() {
-    if (!device || !llmText.trim()) return;
+    if (!device || !llmText.trim() || llmLoading || deviceAudioActive || ttsLoading) return;
+    const requestedDeviceId = device.id;
+    setLlmAudioTestId(null);
     setLlmLoading(true);
     try {
-      setLlmResult(
-        await runLlmModuleTest({ deviceId: device.id, text: llmText.trim() }),
-      );
+      const result = await runLlmModuleTest({ deviceId: device.id, text: llmText.trim(), conversationId: llmConversationRef.current,
+        providerId: testSettings.llmProviderId,
+        llmTemperature: testSettings.llmTemperature, llmMaxOutputTokens: testSettings.llmMaxOutputTokens,
+        llmHistoryTurns: testSettings.llmHistoryTurns });
+      if (selectedDeviceRef.current !== requestedDeviceId) return;
+      const previousId = llmConversationRef.current;
+      llmConversationRef.current = result.conversationId;
+      setLlmResult(result);
+      if (!result.error) setLlmTurns((turns) => [...(previousId && previousId !== result.conversationId ? [] : turns), { id: crypto.randomUUID(), text: result.inputText, reply: result.aiResult.speak, route: 'LLM' }].slice(-12));
+      setHistoryRevision((value) => value + 1);
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
       setLlmLoading(false);
+    }
+  }
+
+  function acceptPipelineResult(result: VoicePipelineResponse) {
+    const previousId = pipelineConversationRef.current;
+    pipelineConversationRef.current = result.conversationId;
+    setPipelineResult(result);
+    if (result.transcript) setPipelineTurns((turns) => [...(previousId && previousId !== result.conversationId ? [] : turns), {
+      id: result.sessionId, text: result.transcript!, reply: result.replyText,
+      route: voiceRouteLabel(result.route), result,
+    }].slice(-12));
+    setHistoryRevision((value) => value + 1);
+  }
+
+  async function handlePipelineText() {
+    if (!device || !pipelineText.trim() || pipelineLoading) return;
+    const requestedDeviceId = device.id;
+    stopBrowserPlayback(false);
+    pipelineAudioRef.current?.pause();
+    setPipelineLoading(true);
+    try {
+      const result = await runVoicePipelineText({ deviceId: device.id, text: pipelineText.trim(), conversationId: pipelineConversationRef.current,
+        providerId: testSettings.llmProviderId, ttsProviderId: testSettings.ttsProviderId, ttsVoice: testSettings.ttsVoice,
+        llmTemperature: testSettings.llmTemperature, llmMaxOutputTokens: testSettings.llmMaxOutputTokens,
+        llmHistoryTurns: testSettings.llmHistoryTurns });
+      if (selectedDeviceRef.current !== requestedDeviceId) return;
+      acceptPipelineResult(result);
+      setPipelineText("");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPipelineLoading(false);
+    }
+  }
+
+  async function handleResetConversation(channel: 'pipeline' | 'llm-test') {
+    if (!device) return;
+    const requestedDeviceId = device.id;
+    setResetting(true);
+    try {
+      await resetVoiceConversation(device.id, channel);
+      if (selectedDeviceRef.current !== requestedDeviceId) return;
+      if (channel === 'pipeline') {
+        pipelineAudioRef.current?.pause();
+        pipelineConversationRef.current = undefined;
+        setPipelineTurns([]);
+        setPipelineResult(null);
+        if (session?.mode !== 'ASR_ONLY') setSession(null);
+      } else {
+        llmConversationRef.current = undefined;
+        setLlmTurns([]);
+        setLlmResult(null);
+        setLlmAudioTestId(null);
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setResetting(false);
     }
   }
 
@@ -3476,12 +3337,15 @@ function VoicePage({
       const result = await runTtsModuleTest({
         text: ttsText.trim(),
         target: "BROWSER",
+        providerId: testSettings.ttsProviderId,
+        voice: testSettings.ttsVoice,
       });
       const audio = new Audio(
         `data:${result.audioMimeType};base64,${result.audioBase64}`,
       );
       browserAudioRef.current = audio;
       audio.volume = 0.25;
+      audio.playbackRate = ttsPlaybackRate;
       audio.onended = () => {
         if (browserAudioRef.current === audio) browserAudioRef.current = null;
         setBrowserTtsStatus("COMPLETED");
@@ -3544,8 +3408,49 @@ function VoicePage({
               text: ttsText.trim(),
               target: "DEVICE",
               volumePercent: deviceVolume,
+              providerId: testSettings.ttsProviderId,
+              voice: testSettings.ttsVoice,
             }),
           );
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : String(error));
+        } finally {
+          setTtsLoading(null);
+        }
+      },
+    });
+  }
+
+  function confirmLlmReplyPlayback() {
+    if (
+      !device ||
+      !llmResult ||
+      !llmReplyText ||
+      llmReplyIsControl ||
+      llmReplyTooLong ||
+      !audioPlaybackSupported ||
+      !online ||
+      active ||
+      deviceAudioActive ||
+      ttsLoading
+    ) return;
+    modal.confirm({
+      title: "通过开发板播报本轮回答",
+      content: `将以 ${deviceVolume}% 音量播报模型回答。请确认开发板远离耳朵后再继续。\n\n${llmReplyText}`,
+      okText: "确认播报",
+      cancelText: "取消",
+      onOk: async () => {
+        stopBrowserPlayback(false);
+        setTtsLoading("DEVICE");
+        try {
+          const result = await runTtsModuleTest({
+            deviceId: device.id,
+            text: llmReplyText,
+            target: "DEVICE",
+            volumePercent: deviceVolume,
+          });
+          setAudioTest(result);
+          setLlmAudioTestId(result.id);
         } catch (error) {
           message.error(error instanceof Error ? error.message : String(error));
         } finally {
@@ -3577,88 +3482,102 @@ function VoicePage({
   }
 
   return (
-    <div className="page-stack">
-      <section className="metric-grid">
-        <Metric
-          label="当前输入"
-          value="立创C3独立麦克风"
-          detail="真实PCM采集与在线ASR"
+    <div className="page-stack voice-workbench">
+      <section className="voice-workbench-toolbar">
+        <Segmented
+          aria-label="语音测试类型"
+          value={voiceTab}
+          onChange={setVoiceTab}
+          options={[{ label: '整链路', value: 'pipeline' }, { label: 'ASR', value: 'ASR' }, { label: 'LLM', value: 'LLM' }, { label: 'TTS', value: 'TTS' }, { label: 'CI1302', value: 'CI1302' }]}
         />
-        <Metric
-          label="测试唤醒词"
-          value={voice?.wakeWord || "小东小东"}
-          detail="识别后回复“我在”"
-          tone="green"
-        />
-        <Metric
-          label="在线链路"
-          value="ASR / LLM / TTS"
-          detail="可分模块和整链路验证"
-        />
-        <Metric
-          label="后续离线模块"
-          value={product?.voiceProcessor || "CI1302"}
-          detail="当前不阻塞在线研发"
-        />
+        <div className="voice-model-strip">
+          {(['ASR', 'LLM', 'TTS'] as const).filter((type) => voiceTab === 'pipeline' || voiceTab === type).map((type) => {
+            const provider = aiConfiguration?.providers.find((item) => item.id === aiConfiguration.defaults[type]);
+            return <span key={type}><b>{type}</b> {provider?.model || '未配置'}</span>;
+          })}
+        </div>
+        <div className="voice-toolbar-tools">
+          {voiceTab !== 'CI1302' ? <>
+            <Tooltip title="测试参数"><Button aria-label="测试参数" icon={<SettingOutlined />} onClick={() => setParametersOpen(true)} /></Tooltip>
+            <Popover trigger="click" title="开发板音量" content={<div className="voice-volume-popover">
+              <div className="voice-volume-popover-controls">
+                <Slider aria-label="开发板播报音量" min={5} max={80} step={5} value={deviceVolume} disabled={!device || volumeLoading || volumeSaving} onChange={setDeviceVolume} />
+                <InputNumber aria-label="开发板播报音量百分比" min={5} max={80} value={deviceVolume} formatter={(value) => `${value}%`} parser={(value) => Number(value?.replace('%', ''))} disabled={!device || volumeLoading || volumeSaving} onChange={(value) => { if (value !== null) setDeviceVolume(value); }} />
+              </div>
+              <Button type="primary" block disabled={!device || volumeLoading || savedDeviceVolume === deviceVolume} loading={volumeSaving} onClick={() => void handleSaveDeviceVolume()}>保存音量</Button>
+              <small>{savedDeviceVolume === null ? '未读取已保存音量' : `设备当前保存 ${savedDeviceVolume}%`}</small>
+            </div>}><Tooltip title="开发板音量"><Button aria-label="开发板音量" icon={<SoundOutlined />} /></Tooltip></Popover>
+            {voiceTab === 'pipeline' ? <Tooltip title="场景模拟"><Button aria-label="场景模拟" icon={<ExperimentOutlined />} onClick={() => setScenariosOpen(true)} /></Tooltip> : null}
+            <Tooltip title="历史记录"><Button aria-label="历史记录" icon={<HistoryOutlined />} onClick={() => setHistoryOpen(true)} /></Tooltip>
+          </> : null}
+        </div>
       </section>
-      <section className="workspace-section module-test-section">
+      {voiceTab !== 'CI1302' ? <div className="voice-action-bar" aria-label="当前测试操作">
+        <div className="voice-action-status"><span className={`voice-state-dot ${active || deviceAudioActive ? 'active' : ''}`} /><strong>{voiceTab === 'pipeline' ? voiceTestStatusLabel(pipelineSession?.status) : voiceTab === 'ASR' ? voiceTestStatusLabel(asrSession?.status) : voiceTab === 'TTS' ? audioTest && ttsTarget === 'DEVICE' ? audioTestStatusLabel(audioTest.status) : browserTtsStatusLabel(browserTtsStatus) : llmLoading ? '模型处理中' : `当前会话 ${llmTurns.length} 轮`}</strong><small>{online ? device?.name || '设备在线' : '设备离线'}</small></div>
+        <div className="voice-action-buttons">
+          {voiceTab === 'pipeline' ? <>
+            <Select className="voice-start-mode" aria-label="整链路录音方式" value={startMode} disabled={active || starting} onChange={setStartMode} options={[{ label: '带唤醒词录音', value: 'FULL_PIPELINE' }, { label: '模拟 CI 唤醒', value: 'CI_WAKE_ONLINE_FALLBACK' }]} />
+            <Button type="primary" icon={<AudioOutlined />} disabled={!voiceTestSupported || !online || active || deviceAudioActive || starting || Boolean(ttsLoading) || pipelineLoading || resetting || llmLoading} loading={starting} onClick={() => void handleStart(startMode)}>开始测试</Button>
+            <Button danger icon={<StopOutlined />} disabled={!pipelineSession || !canStop} loading={stopping} onClick={() => void handleStop()}>停止</Button>
+            <Button disabled={!device || active || starting || pipelineLoading || llmLoading || resetting} loading={resetting} onClick={() => void handleResetConversation('pipeline')}>新建会话</Button>
+          </> : null}
+          {voiceTab === 'ASR' ? <>
+            <Button type="primary" icon={<AudioOutlined />} disabled={!voiceTestSupported || !online || active || deviceAudioActive || starting || Boolean(ttsLoading)} loading={starting} onClick={() => void handleStart('ASR_ONLY')}>开始识别</Button>
+            <Button danger icon={<StopOutlined />} disabled={session?.mode !== 'ASR_ONLY' || !canStop} loading={stopping} onClick={() => void handleStop()}>停止</Button>
+          </> : null}
+          {voiceTab === 'LLM' ? <>
+            <Button type="primary" icon={<CloudServerOutlined />} disabled={!device || !llmText.trim() || resetting || active || pipelineLoading || deviceAudioActive || Boolean(ttsLoading)} loading={llmLoading} onClick={() => void handleLlmTest()}>发送问题</Button>
+            <Button disabled={!device || llmLoading || resetting || active} loading={resetting} onClick={() => void handleResetConversation('llm-test')}>新建会话</Button>
+            <Button icon={<SoundOutlined />} disabled={!audioPlaybackSupported || !online || !llmReplyText || llmReplyIsControl || llmReplyTooLong || active || deviceAudioActive || Boolean(ttsLoading)} loading={ttsLoading === 'DEVICE'} onClick={confirmLlmReplyPlayback}>播报回答</Button>
+            <Button danger icon={<StopOutlined />} disabled={!llmAudioTest || !['COMMAND_SENT', 'PLAYING', 'LISTENING'].includes(llmAudioTest.status)} onClick={() => void stopAudioPlayback()}>停止播报</Button>
+          </> : null}
+          {voiceTab === 'TTS' ? <>
+            <Segmented aria-label="播放目标" value={ttsTarget} onChange={setTtsTarget} disabled={Boolean(ttsLoading) || browserTtsStatus === 'PLAYING' || deviceAudioActive} options={[{ label: '浏览器', value: 'BROWSER' }, { label: '开发板', value: 'DEVICE' }]} />
+            <Button type="primary" icon={<SoundOutlined />} disabled={!ttsText.trim() || active || Boolean(ttsLoading) || deviceAudioActive || browserTtsStatus === 'PLAYING' || (ttsTarget === 'DEVICE' && (!audioPlaybackSupported || !online))} loading={ttsLoading === ttsTarget} onClick={() => ttsTarget === 'BROWSER' ? void handleBrowserTts() : confirmDeviceTts()}>{ttsTarget === 'BROWSER' ? '浏览器试听' : '播放到开发板'}</Button>
+            <Button danger icon={<StopOutlined />} disabled={ttsTarget === 'BROWSER' ? browserTtsStatus !== 'PLAYING' : !audioTest || !['COMMAND_SENT', 'PLAYING', 'LISTENING'].includes(audioTest.status)} onClick={() => ttsTarget === 'BROWSER' ? stopBrowserPlayback() : void stopAudioPlayback()}>停止播放</Button>
+          </> : null}
+        </div>
+      </div> : null}
+      {voiceTab === 'CI1302' ? <Ci1302MonitorPanel /> : null}
+      {active && ((voiceTab !== 'pipeline' && session?.mode !== 'ASR_ONLY') || (voiceTab !== 'ASR' && session?.mode === 'ASR_ONLY')) ? <div className="voice-running-task"><span>{session?.mode === 'ASR_ONLY' ? 'ASR' : '整链路'}测试进行中 · {voiceTestStatusLabel(session?.status)}</span><Button size="small" onClick={() => setVoiceTab(session?.mode === 'ASR_ONLY' ? 'ASR' : 'pipeline')}>查看测试</Button><Button size="small" danger disabled={!canStop} loading={stopping} onClick={() => void handleStop()}>停止测试</Button></div> : null}
+      {voiceTab !== 'TTS' && (ttsLoading || browserTtsStatus === 'PLAYING' || deviceAudioActive) ? <div className="voice-running-task"><span>{ttsLoading ? 'TTS 正在生成音频' : browserTtsStatus === 'PLAYING' ? '浏览器正在播放' : `开发板 · ${audioTestStatusLabel(audioTest!.status)}`}</span><Button size="small" onClick={() => setVoiceTab('TTS')}>查看播放</Button>{browserTtsStatus === 'PLAYING' ? <Button size="small" danger onClick={() => stopBrowserPlayback()}>停止浏览器</Button> : null}{audioTest && ['COMMAND_SENT', 'PLAYING', 'LISTENING'].includes(audioTest.status) ? <Button size="small" danger onClick={() => void stopAudioPlayback()}>停止开发板</Button> : null}</div> : null}
+      {voiceTab !== 'pipeline' && voiceTab !== 'CI1302' ? <section className="workspace-section module-test-section">
         <SectionTitle
-          title="分模块测试"
-          aside={<Tag color="blue">ASR / LLM / TTS</Tag>}
+          title={voiceTab === 'ASR' ? '语音识别测试' : voiceTab === 'LLM' ? '对话模型测试' : '语音合成与播放'}
         />
         <div className="module-test-grid">
-          <div className="module-test-cell">
-            <div className="module-test-heading">
-              <span>01</span>
-              <div>
-                <strong>ASR 识别</strong>
-                <small>实板麦克风 · 仅语音转文字</small>
-              </div>
-            </div>
-            <Button
-              type="primary"
-              icon={<AudioOutlined />}
-              disabled={
-                !voiceTestSupported || !online || active || deviceAudioActive
-              }
-              loading={starting && session?.mode === "ASR_ONLY"}
-              onClick={() => void handleStart("ASR_ONLY")}
-            >
-              开始 ASR 测试
-            </Button>
+          {voiceTab === 'ASR' ? <div className="module-test-cell">
+            {!voiceTestSupported || !online ? <Alert type="warning" showIcon title="设备离线或不支持语音采集" /> : null}
             <div className="module-result">
               <span>识别文本</span>
               <strong>
-                {session?.mode === "ASR_ONLY"
-                  ? session.result?.transcript ||
-                    voiceTestStatusLabel(session.status)
+                {asrSession
+                  ? asrSession.result?.transcript ||
+                    voiceTestStatusLabel(asrSession.status)
                   : "等待测试"}
               </strong>
+              {asrSession ? <p>{voiceTestStatusLabel(asrSession.status)}{asrSession.result ? ` · ${asrSession.result.totalLatencyMs} ms` : ''}</p> : null}
             </div>
-          </div>
-          <div className="module-test-cell">
-            <div className="module-test-heading">
-              <span>02</span>
-              <div>
-                <strong>LLM 判断</strong>
-                <small>跳过规则与知识库 · 不控制设备</small>
-              </div>
-            </div>
+            {asrSession?.status === 'FAILED' ? <Alert type="error" showIcon title={asrSession.message} /> : null}
+            {asrSession?.result ? <details className="voice-details"><summary>识别耗时、成本与处理记录</summary><Table rowKey="key" size="small" pagination={false} scroll={{ x: 820 }} dataSource={asrSession.result.stages} columns={voiceStageColumns} /></details> : null}
+            <VoiceTurnLog session={asrSession} onExport={exportVoiceSession} />
+          </div> : null}
+          {voiceTab === 'LLM' ? <div className="module-test-cell">
             <Input.TextArea
               value={llmText}
+              aria-label="LLM 测试内容"
+              disabled={llmLoading || resetting}
               onChange={(event) => setLlmText(event.target.value)}
               autoSize={{ minRows: 2, maxRows: 4 }}
               maxLength={500}
             />
-            <Button
-              type="primary"
-              icon={<CloudServerOutlined />}
-              disabled={!device || !llmText.trim()}
-              loading={llmLoading}
-              onClick={() => void handleLlmTest()}
-            >
-              运行 LLM 测试
-            </Button>
+            <VoiceConversation turns={llmTurns} />
+            {llmResult && !llmResult.error ? <>
+              {!audioPlaybackSupported || !online ? <Alert type="warning" showIcon title="开发板离线或不支持播报" /> : null}
+              {llmReplyIsControl ? <Alert type="info" showIcon title="本轮识别为设备控制意图，仅预览结果，没有执行动作，也不会播报“已执行”。请到整链路页测试真实控制。" /> : null}
+              {llmReplyTooLong ? <Alert type="warning" showIcon title="开发板单次播报上限为 100 字。请在当前会话中让模型简短复述后再播报。" /> : null}
+              {llmAudioTest ? <div className="module-result"><span>本轮回答播报</span><strong>{audioTestStatusLabel(llmAudioTest.status)} · 音量 {llmAudioTest.volumePercent}%</strong><p>{llmAudioTest.message}</p></div> : null}
+            </> : null}
             <div className="module-result">
               <span>结构化输出</span>
               <strong>
@@ -3668,15 +3587,11 @@ function VoicePage({
               </strong>
               {llmResult ? <p>{llmResult.aiResult.speak}</p> : null}
             </div>
-          </div>
-          <div className="module-test-cell">
-            <div className="module-test-heading">
-              <span>03</span>
-              <div>
-                <strong>TTS 播放</strong>
-                <small>浏览器试听 / 实板低音量播放</small>
-              </div>
-            </div>
+            {llmResult?.error ? <Alert type="error" showIcon title={llmResult.error} /> : null}
+            {llmResult ? <details className="voice-details"><summary>结构化结果与安全校验</summary><pre>{JSON.stringify({ result: llmResult.aiResult, safety: llmResult.safetyResult, usage: llmResult.usage }, null, 2)}</pre></details> : null}
+          </div> : null}
+          {voiceTab === 'TTS' ? <div className="module-test-cell">
+            {ttsTarget === 'BROWSER' ? <label className="voice-parameter-field">浏览器播放倍速<Select aria-label="浏览器播放倍速" value={ttsPlaybackRate} onChange={setTtsPlaybackRate} options={[0.8, 1, 1.2].map((value) => ({ value, label: `${value}×` }))} /></label> : null}
             <div className="tts-presets">
               {["我在", "已打开照明", "网络未连接，请检查网络"].map((text) => (
                 <Button
@@ -3690,90 +3605,15 @@ function VoicePage({
             </div>
             <Input
               value={ttsText}
+              aria-label="TTS 播报文本"
               onChange={(event) => setTtsText(event.target.value)}
               maxLength={100}
             />
-            <div className="tts-volume-control">
-              <span>
-                <SoundOutlined /> 实板音量
-              </span>
-              <Slider
-                min={5}
-                max={80}
-                step={5}
-                value={deviceVolume}
-                marks={{ 20: "20", 50: "50", 80: "80" }}
-                onChange={setDeviceVolume}
-              />
-              <InputNumber
-                min={5}
-                max={80}
-                step={5}
-                value={deviceVolume}
-                formatter={(value) => `${value}%`}
-                parser={(value) => Number(value?.replace("%", ""))}
-                onChange={(value) => setDeviceVolume(value ?? 20)}
-              />
-            </div>
-            <div className="tts-actions">
-              <Button
-                icon={<SoundOutlined />}
-                disabled={!ttsText.trim() || active}
-                loading={ttsLoading === "BROWSER"}
-                onClick={() => void handleBrowserTts()}
-              >
-                浏览器试听
-              </Button>
-              <Button
-                icon={<StopOutlined />}
-                disabled={browserTtsStatus !== "PLAYING"}
-                onClick={() => stopBrowserPlayback()}
-              >
-                停止浏览器
-              </Button>
-              <Tooltip
-                title={
-                  audioPlaybackSupported
-                    ? "向实板发送一次受限低音量播放任务"
-                    : "当前固件未上报 audioPlayback 能力，请先烧录播放版固件"
-                }
-              >
-                <span>
-                  <Button
-                    type="primary"
-                    icon={<ThunderboltOutlined />}
-                    disabled={
-                      !audioPlaybackSupported ||
-                      !online ||
-                      !ttsText.trim() ||
-                      active ||
-                      deviceAudioActive
-                    }
-                    loading={ttsLoading === "DEVICE"}
-                    onClick={confirmDeviceTts}
-                  >
-                    播放到开发板
-                  </Button>
-                </span>
-              </Tooltip>
-              <Button
-                danger
-                icon={<StopOutlined />}
-                disabled={
-                  !audioTest ||
-                  !["COMMAND_SENT", "PLAYING"].includes(audioTest.status)
-                }
-                onClick={() => void stopAudioPlayback()}
-              >
-                停止开发板
-              </Button>
-            </div>
-            <div className="module-result">
+            {ttsTarget === 'BROWSER' ? <div className="module-result">
               <span>浏览器试听</span>
               <strong>{browserTtsStatusLabel(browserTtsStatus)}</strong>
               <p>{browserTtsDetail}</p>
-            </div>
-            <div className="module-result">
+            </div> : <div className="module-result">
               <span>设备播放状态</span>
               <strong>
                 {audioTest
@@ -3781,119 +3621,30 @@ function VoicePage({
                   : "等待测试"}
               </strong>
               {audioTest ? <p>{audioTest.message}</p> : null}
-            </div>
-          </div>
+            </div>}
+          </div> : null}
         </div>
-      </section>
-      <section className="workspace-section voice-test-panel">
+      </section> : null}
+      {voiceTab === 'pipeline' ? <section className="workspace-section voice-test-panel">
         <SectionTitle
-          title="实板语音测试"
-          aside={
-            <Space>
-              <Badge
-                status={online ? "success" : "default"}
-                text={online ? "设备在线" : "设备离线"}
-              />
-              <Tag color="green">唤醒回复受限低音量</Tag>
-            </Space>
-          }
+          title="当前会话"
         />
-        <Alert
-          type="info"
-          showIcon
-          title="离线模块未到，当前验证C3独立在线音频链路"
-          description="普通整链路测试需要说“小东小东 + 内容”；在线回退测试会模拟CI已经唤醒，录音开始后只说命令或问题。两种模式都使用立创板真实麦克风和真实在线ASR。"
-        />
-        <div className="voice-test-layout">
-          <div className="voice-test-controls">
-            <div className="voice-device-line">
-              <span>测试设备</span>
-              <strong>{device?.name || "未选择设备"}</strong>
-              <code>{device?.id || "-"}</code>
-            </div>
-            {!voiceTestSupported ? (
-              <Alert
-                type="warning"
-                showIcon
-                title="当前设备固件未上报 voiceTestControl 能力"
-              />
-            ) : null}
-            <div className="voice-test-actions">
-              <Button
-                type="primary"
-                size="large"
-                icon={<AudioOutlined />}
-                disabled={
-                  !voiceTestSupported || !online || active || deviceAudioActive
-                }
-                loading={starting && session?.mode === "FULL_PIPELINE"}
-                onClick={() => void handleStart()}
-              >
-                开始整链路测试
-              </Button>
-              <Tooltip title="只模拟CI唤醒事件；录音、ASR和后续处理均为真实链路">
-                <Button
-                  size="large"
-                  icon={<GatewayOutlined />}
-                  disabled={
-                    !voiceTestSupported || !online || active || deviceAudioActive
-                  }
-                  loading={
-                    starting && session?.mode === "CI_WAKE_ONLINE_FALLBACK"
-                  }
-                  onClick={() => void handleStart("CI_WAKE_ONLINE_FALLBACK")}
-                >
-                  模拟CI唤醒后在线回退
-                </Button>
-              </Tooltip>
-              <Tooltip
-                title={
-                  session?.status === "PROCESSING"
-                    ? "音频已进入服务器处理，不能再取消录音"
-                    : "取消当前录音窗口"
-                }
-              >
-                <Button
-                  danger
-                  size="large"
-                  icon={<StopOutlined />}
-                  disabled={!canStop}
-                  loading={stopping}
-                  onClick={() => void handleStop()}
-                >
-                  停止测试
-                </Button>
-              </Tooltip>
-            </div>
-            <div
-              className={`voice-live-state status-${(session?.status || "idle").toLowerCase()}`}
-            >
-              <span className="voice-state-dot" />
-              <div>
-                <strong>{voiceTestStatusLabel(session?.status)}</strong>
-                <small>
-                  {session?.message || "点击开始后，设备会打开 6 秒录音窗口"}
-                </small>
-              </div>
-            </div>
-            {session?.status === "RECORDING" ? (
-              <Alert
-                type="success"
-                showIcon
-                title={
-                  session.mode === "CI_WAKE_ONLINE_FALLBACK"
-                    ? "CI唤醒已模拟，请直接说你的指令或问题"
-                    : `请现在说：“${voice?.wakeWord || "小东小东"} + 你的指令或问题”`
-                }
-                description={`${session.recordSeconds} 秒后自动结束录音并上传。本模式不会生成CI1302硬件测试结论。`}
-              />
-            ) : null}
-          </div>
-          <VoiceTestProgress session={session} online={online} />
-        </div>
-      </section>
-      <VoiceTestResult session={session} />
-      <section className="workspace-section">
+        {!voiceTestSupported ? <Alert type="warning" showIcon title="当前设备不支持语音测试" /> : null}
+        {pipelineSession?.status === 'WAITING' ? <p className="voice-session-prompt">{pipelineSession.mode === 'CI_WAKE_ONLINE_FALLBACK' ? '请直接说话' : pipelineConversationRef.current ? '请继续说话' : `请说“${voice?.wakeWord || '小东小东'}”`}</p> : null}
+        <VoicePipelineConversation turns={visiblePipelineTurns}
+          session={pipelineResult?.inputSource === 'TEXT_SIMULATION' ? null : pipelineSession}
+          processingText={pipelineLoading} onExport={exportVoiceSession} />
+        <details className="voice-text-mode"><summary>文字模拟</summary><div className="voice-text-composer">
+          <label htmlFor="pipeline-text">文字验证</label>
+          <Input.TextArea id="pipeline-text" aria-label="整链路文字内容" value={pipelineText} disabled={pipelineLoading || resetting} onChange={(event) => setPipelineText(event.target.value)} autoSize={{ minRows: 2, maxRows: 4 }} maxLength={500} placeholder="例如：你好；再继续问一个问题" />
+          <Button type="primary" loading={pipelineLoading} disabled={!device || !pipelineText.trim() || active || starting || llmLoading || resetting || deviceAudioActive || Boolean(ttsLoading)} onClick={() => void handlePipelineText()}>发送文字</Button>
+        </div></details>
+        {pipelineResult?.inputSource === 'TEXT_SIMULATION' && pipelineResult.ttsAudioBase64 ? <audio className="voice-reply-audio" aria-label="本轮回复试听" controls preload="none" ref={(element) => { pipelineAudioRef.current = element; if (element) element.volume = 0.25; }} src={`data:${pipelineResult.ttsAudioMimeType};base64,${pipelineResult.ttsAudioBase64}`} /> : null}
+      </section> : null}
+      {voiceTab === 'pipeline' && (pipelineResult || pipelineSession) ? <details className="voice-analysis"><summary>本轮处理详情</summary><VoiceTestResult session={pipelineResult?.inputSource === 'TEXT_SIMULATION' ? null : pipelineSession} result={pipelineResult ?? undefined} /></details> : null}
+      <Drawer title="场景模拟" open={scenariosOpen} onClose={() => setScenariosOpen(false)} size="min(820px, 100vw)">
+      <div className="scenario-drawer"><details className="workspace-section voice-details">
+        <summary>CI1302 离线逻辑模拟</summary>
         <SectionTitle
           title="CI UART逻辑模拟"
           aside={<Tag color="orange">无模块 · 不计入硬件验证</Tag>}
@@ -3958,101 +3709,172 @@ function VoicePage({
             ) : null}
           </div>
         </div>
-      </section>
-      <section className="workspace-section">
-        <SectionTitle title="当前在线语音链路" />
-        <div className="voice-flow">
-          <FlowNode title="网页或按键开始录音" note="C3独立麦克风" />
-          <FlowArrow />
-          <FlowNode title="ASR识别" note="语音转文本" />
-          <FlowArrow />
-          <FlowNode title="规则 / 知识库 / LLM" note="意图与回复" />
-          <FlowArrow />
-          <FlowNode title="安全结果" note="结构化输出" />
-          <FlowArrow />
-          <FlowNode title="TTS返回" note="手动确认播放" />
+      </details>
+      <ProactiveSimulationPanel deviceId={device?.id ?? null} />
+      <ScenarioPresetsPanel deviceId={device?.id ?? null} /></div>
+      </Drawer>
+      <Drawer title="测试参数" open={parametersOpen} onClose={() => setParametersOpen(false)} size="min(640px, 100vw)">
+        <div className="voice-settings-drawer">
+          {(voiceTab === 'pipeline' || voiceTab === 'ASR') ? <VoiceParameterPanel kind="capture" settings={testSettings} providers={aiConfiguration?.providers ?? []} defaultProviderId={aiConfiguration?.defaults.ASR ?? undefined} disabled={active || starting} onChange={updateTestSettings} /> : null}
+          {(voiceTab === 'pipeline' || voiceTab === 'LLM') ? <VoiceParameterPanel kind="llm" settings={testSettings} providers={aiConfiguration?.providers ?? []} defaultProviderId={aiConfiguration?.defaults.LLM ?? undefined} disabled={active || starting || llmLoading} onChange={updateTestSettings} /> : null}
+          {(voiceTab === 'pipeline' || voiceTab === 'TTS') ? <VoiceParameterPanel kind="tts" settings={testSettings} providers={aiConfiguration?.providers ?? []} defaultProviderId={aiConfiguration?.defaults.TTS ?? undefined} disabled={active || starting || Boolean(ttsLoading)} onChange={updateTestSettings} /> : null}
         </div>
-        <Alert
-          type="info"
-          showIcon
-          title="CI1302在后续样板阶段接入"
-          description="届时只把CI1302的唤醒和离线语义ID接入C3 UART；在线录音和TTS继续使用C3独立Codec。当前可用在线回退模式提前验证CI唤醒之后的完整路径。"
-        />
-      </section>
+      </Drawer>
+      <Drawer title="历史记录" open={historyOpen} onClose={() => setHistoryOpen(false)} size="min(1000px, 100vw)">
+        {device ? <VoiceHistoryPanel key={device.id} deviceId={device.id} revision={historyRevision} /> : <Empty description="未选择设备" />}
+      </Drawer>
     </div>
   );
 }
 
-function VoiceTestProgress({
-  session,
-  online,
-}: {
-  session: VoiceTestSession | null;
-  online: boolean;
+function VoiceParameterPanel({ kind, settings, providers, defaultProviderId, disabled, onChange }: {
+  kind: 'capture' | 'llm' | 'tts';
+  settings: VoiceTestSettings;
+  providers: AiServiceConfiguration['providers'];
+  defaultProviderId?: string;
+  disabled: boolean;
+  onChange: (patch: Partial<VoiceTestSettings>) => void;
 }) {
-  const steps = [
-    {
-      key: "ONLINE",
-      label: "设备连接",
-      detail: online ? "MQTT 在线" : "等待设备",
-    },
-    { key: "COMMAND_SENT", label: "测试下发", detail: "MQTT 研发控制" },
-    { key: "RECORDING", label: "麦克风采集", detail: "16kHz / 16bit / 单声道" },
-    { key: "UPLOADING", label: "PCM 上传", detail: "本地 API" },
-    { key: "PROCESSING", label: "云端处理", detail: "ASR / 路由 / 安全" },
-    { key: "COMPLETED", label: "结果完成", detail: "命令与回执" },
-  ];
-  const order = [
-    "CREATED",
-    "COMMAND_SENT",
-    "RECORDING",
-    "UPLOADING",
-    "PROCESSING",
-    "COMPLETED",
-  ];
-  const currentIndex = session ? order.indexOf(session.status) : -1;
-  return (
-    <div className="voice-test-progress">
-      {steps.map((step, index) => {
-        const stepIndex = step.key === "ONLINE" ? -1 : order.indexOf(step.key);
-        const failed =
-          index === steps.length - 1 &&
-          session &&
-          ["FAILED", "CANCELLED"].includes(session.status);
-        const complete =
-          step.key === "ONLINE"
-            ? online
-            : currentIndex > stepIndex || session?.status === "COMPLETED";
-        const current = step.key !== "ONLINE" && session?.status === step.key;
-        return (
-          <div
-            className={`voice-progress-step ${complete ? "complete" : ""} ${current ? "current" : ""} ${failed ? "failed" : ""}`}
-            key={step.key}
-          >
-            <span>
-              {complete ? (
-                <CheckCircleFilled />
-              ) : current ? (
-                <LoadingOutlined />
-              ) : failed ? (
-                <StopOutlined />
-              ) : (
-                index + 1
-              )}
-            </span>
-            <div>
-              <strong>{step.label}</strong>
-              <small>{step.detail}</small>
-            </div>
-          </div>
-        );
-      })}
+  const serviceType = kind === 'capture' ? 'ASR' : kind === 'llm' ? 'LLM' : 'TTS';
+  const providerField = kind === 'capture' ? 'asrProviderId' : kind === 'llm' ? 'llmProviderId' : 'ttsProviderId';
+  const selectedProvider = providers.find((item) => item.id === (settings[providerField] || defaultProviderId));
+  const voiceOptions = ttsVoicesByModel[selectedProvider?.model || ''] || [];
+  const canOverrideVoice = kind === 'tts' && voiceOptions.length > 0 &&
+    selectedProvider?.baseUrl?.includes('dashscope.aliyuncs.com') &&
+    selectedProvider.baseUrl.includes('/SpeechSynthesizer');
+  const defaultVoiceName = voiceOptions.find((item) => item.value === selectedProvider?.voice)?.label.split(' · ')[0];
+  const currentVoiceOption = settings.ttsVoice && !voiceOptions.some((item) => item.value === settings.ttsVoice)
+    ? [{ value: settings.ttsVoice, label: `原有设置 · ${settings.ttsVoice}` }]
+    : [];
+  return <details className="voice-parameter-panel">
+    <summary>{kind === 'capture' ? '采集与断句参数' : kind === 'llm' ? 'LLM 测试参数' : 'TTS 音色参数'}</summary>
+    <div className="voice-parameter-grid">
+      <label className="voice-parameter-field">{serviceType} 模型
+        <Select aria-label={`${serviceType} 测试模型`} value={settings[providerField] || ''} disabled={disabled}
+          onChange={(value) => onChange({ [providerField]: value || undefined, ...(kind === 'tts' ? { ttsVoice: undefined } : {}) })}
+          options={[{ value: '', label: 'AI 服务默认模型' }, ...providers.filter((item) => item.enabled && item.serviceType === serviceType)
+            .map((item) => ({ value: item.id, label: `${item.name} · ${item.model}` }))]} />
+      </label>
+      {kind === 'capture' ? <>
+        <label className="voice-parameter-field">单句尾部静音 (毫秒)<InputNumber aria-label="单句尾部静音" min={400} max={2000} step={100} value={settings.endpointSilenceMs} disabled={disabled} onChange={(value) => { if (value !== null) onChange({ endpointSilenceMs: value }); }} /></label>
+        <label className="voice-parameter-field">会话无声结束 (秒)<InputNumber aria-label="会话无声结束" min={10} max={120} step={5} value={settings.idleTimeoutMs / 1000} disabled={disabled} onChange={(value) => { if (value !== null) onChange({ idleTimeoutMs: value * 1000 }); }} /></label>
+        <label className="voice-parameter-field">单句最长 (秒)<InputNumber aria-label="单句最长" min={3} max={12} value={settings.maxUtteranceSeconds} disabled={disabled} onChange={(value) => { if (value !== null) onChange({ maxUtteranceSeconds: value }); }} /></label>
+        <label className="voice-parameter-field">最低人声门限<InputNumber aria-label="最低人声门限" min={100} max={3000} step={50} value={settings.voiceThreshold} disabled={disabled} onChange={(value) => { if (value !== null) onChange({ voiceThreshold: value }); }} /></label>
+        <label className="voice-parameter-field">环境噪声倍数<InputNumber aria-label="环境噪声倍数" min={2} max={8} step={0.5} value={settings.noiseMultiplier} disabled={disabled} onChange={(value) => { if (value !== null) onChange({ noiseMultiplier: value }); }} /></label>
+        <p className="voice-parameter-note">句尾静音决定何时提交一句；会话无声计时仅在等待下一句时运行。门限越高，越不易被噪声触发，也可能漏掉轻声。</p>
+      </> : null}
+      {kind === 'llm' ? <>
+        <label className="voice-parameter-field">温度<Slider aria-label="LLM 温度" min={0} max={1} step={0.1} value={settings.llmTemperature} disabled={disabled} onChange={(value) => onChange({ llmTemperature: value })} /><span>{settings.llmTemperature.toFixed(1)}</span></label>
+        <label className="voice-parameter-field">最大输出 Token<InputNumber aria-label="最大输出 Token" min={256} max={2048} step={128} value={settings.llmMaxOutputTokens} disabled={disabled} onChange={(value) => { if (value !== null) onChange({ llmMaxOutputTokens: value }); }} /></label>
+        <label className="voice-parameter-field">携带历史轮数<InputNumber aria-label="携带历史轮数" min={0} max={12} value={settings.llmHistoryTurns} disabled={disabled} onChange={(value) => { if (value !== null) onChange({ llmHistoryTurns: value }); }} /></label>
+        <p className="voice-parameter-note">这些参数仅用于研发测试；设备动作仍经过安全规则校验。</p>
+      </> : null}
+      {kind === 'tts' ? <>
+        <label className="voice-parameter-field">TTS 音色<Select aria-label="TTS 音色" value={canOverrideVoice ? settings.ttsVoice || '' : ''} disabled={disabled || !canOverrideVoice}
+          onChange={(value) => onChange({ ttsVoice: value || undefined })}
+          options={[{ value: '', label: `使用模型默认音色${defaultVoiceName ? `（${defaultVoiceName}）` : ''}` }, ...voiceOptions, ...currentVoiceOption]} /></label>
+        <p className="voice-parameter-note">{canOverrideVoice ? '按当前模型选择音色；切换模型后恢复默认音色。' : '当前模型使用 AI 服务中配置的音色。'}</p>
+      </> : null}
     </div>
-  );
+  </details>;
 }
 
-function VoiceTestResult({ session }: { session: VoiceTestSession | null }) {
-  const result = session?.result;
+function voiceSessionTurns(session: VoiceTestSession): VoiceTestTurn[] {
+  if (session.turns.length) return session.turns;
+  if (!session.result) return [];
+  return [{
+    id: session.result.sessionId,
+    at: session.completedAt || session.updatedAt,
+    durationMs: 0,
+    result: session.result,
+  }];
+}
+
+function VoiceTurnLog({ session, onExport }: { session: VoiceTestSession | null; onExport: () => void }) {
+  const turns = session ? voiceSessionTurns(session) : [];
+  if (!turns.length) return null;
+  return <div className="voice-turn-log">
+    <div className="voice-turn-log-header"><strong>本场逐轮记录 · {turns.length} 轮</strong><Button size="small" icon={<ExportOutlined />} onClick={onExport}>导出 JSON</Button></div>
+    <Table size="small" rowKey="id" pagination={false} scroll={{ x: 700 }} dataSource={turns.map((turn, index) => ({ ...turn, index: index + 1 }))}
+      columns={[
+        { title: '轮次', dataIndex: 'index', width: 66 },
+        { title: '时间', dataIndex: 'at', width: 150, render: (value: string) => new Date(value).toLocaleTimeString('zh-CN') },
+        { title: '录音', dataIndex: 'durationMs', width: 80, render: (value: number) => `${(value / 1000).toFixed(1)}s` },
+        { title: '识别文字', key: 'transcript', render: (_, turn) => turn.result.transcript || '未识别' },
+        { title: '回复 / 路由', key: 'reply', render: (_, turn) => `${turn.result.replyText || '无播报'} · ${voiceRouteLabel(turn.result.route)}` },
+        { title: '耗时 / 费用', key: 'metrics', width: 135, render: (_, turn) => `${turn.result.totalLatencyMs}ms · ¥${turn.result.cost.totalCny.toFixed(4)}` },
+      ]} />
+  </div>;
+}
+
+interface VoiceConversationTurn {
+  id: string;
+  text: string;
+  reply: string;
+  route: string;
+  at?: string;
+  result?: VoicePipelineResponse;
+}
+
+function VoicePipelineConversation({
+  turns,
+  session,
+  processingText,
+  onExport,
+}: {
+  turns: VoiceConversationTurn[];
+  session: VoiceTestSession | null;
+  processingText: boolean;
+  onExport: () => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const currentStatus = session?.status;
+  const isWorking = processingText || Boolean(currentStatus && [
+    'CREATED', 'COMMAND_SENT', 'WAITING', 'RECORDING', 'UPLOADING',
+    'PROCESSING', 'PLAYING', 'STOPPING',
+  ].includes(currentStatus));
+  useEffect(() => {
+    const scroll = scrollRef.current;
+    if (scroll) scroll.scrollTop = scroll.scrollHeight;
+  }, [turns.length, currentStatus, processingText]);
+
+  return <div className={`voice-dialogue-panel${!turns.length && !isWorking ? ' is-empty' : ''}`}>
+    <div className="voice-dialogue-header">
+      <div><strong>当前对话</strong><span>{turns.length} 轮 · {session ? voiceTestStatusLabel(session.status) : processingText ? '正在处理' : turns.length ? '文字会话' : '待开始'}</span></div>
+      {session && voiceSessionTurns(session).length > 0 ? <Tooltip title="导出本次实板测试记录"><Button size="small" icon={<ExportOutlined />} aria-label="导出本次实板测试记录" onClick={onExport} /></Tooltip> : null}
+    </div>
+    <div className="voice-dialogue-scroll" ref={scrollRef} role="log" aria-label="本轮对话记录" aria-live="polite">
+      {!turns.length && !isWorking ? <div className="voice-dialogue-empty">暂无对话</div> : null}
+      {turns.map((turn) => {
+        const steps = turn.result?.stages.filter((stage) => stage.status === 'COMPLETED' || stage.status === 'MATCHED' || stage.status === 'FAILED') ?? [];
+        return <div className="voice-conversation-turn voice-dialogue-turn" key={turn.id}>
+          <div className="voice-dialogue-message voice-dialogue-user voice-user-message"><span>你{turn.at ? ` · ${new Date(turn.at).toLocaleTimeString('zh-CN')}` : ''}</span><p>{turn.text}</p></div>
+          <div className="voice-dialogue-message voice-dialogue-assistant voice-assistant-message"><span>小东 · {turn.route}</span><p>{turn.reply || '未生成播报'}</p>
+            {steps.length > 0 ? <div className="voice-dialogue-stages" aria-label="本轮处理步骤">{steps.map((step) => <small key={step.key} className={step.status === 'FAILED' ? 'failed' : undefined}>{step.label}{step.status === 'FAILED' ? `失败：${step.error || '处理失败'}` : ''}</small>)}</div> : null}
+            {turn.result ? <small className="voice-dialogue-metrics">{turn.result.totalLatencyMs} ms · ¥{turn.result.cost.totalCny.toFixed(4)}</small> : null}
+          </div>
+        </div>;
+      })}
+      {isWorking ? <div className="voice-dialogue-activity"><span className="voice-state-dot" /><span>{processingText ? '正在处理文字' : session?.message || voiceTestStatusLabel(currentStatus)}</span></div> : null}
+    </div>
+  </div>;
+}
+
+function VoiceConversation({ turns }: { turns: VoiceConversationTurn[] }) {
+  const endRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { endRef.current?.scrollIntoView({ block: 'nearest' }); }, [turns.at(-1)?.id]);
+  if (!turns.length) return null;
+  return <div className="voice-conversation" role="log" aria-label="本轮对话记录" aria-live="polite">
+    {turns.map((turn) => <div className="voice-conversation-turn" key={turn.id}>
+      <p className="voice-user-message"><span>你</span>{turn.text}</p>
+      <p className="voice-assistant-message"><span>小东 <small>{turn.route}</small></span>{turn.reply}</p>
+    </div>)}
+    <div ref={endRef} />
+  </div>;
+}
+
+function VoiceTestResult({ session, result: suppliedResult }: { session: VoiceTestSession | null; result?: VoicePipelineResponse }) {
+  const result = suppliedResult ?? session?.result;
   return (
     <section className="workspace-section voice-result-section">
       <SectionTitle
@@ -4071,14 +3893,15 @@ function VoiceTestResult({ session }: { session: VoiceTestSession | null }) {
           description={
             session?.status === "FAILED"
               ? session.message
-              : "完成一次实板测试后显示识别与执行结果"
+              : "完成一次测试后显示处理结果"
           }
         />
       ) : (
         <>
+          {result.stages.filter((stage) => stage.error).map((stage) => <Alert key={stage.key} type="error" showIcon title={`${stage.label}：${stage.error}`} />)}
           <div className="voice-result-grid">
             <ResultField
-              label="ASR 识别文本"
+              label={result.inputSource === 'TEXT_SIMULATION' ? '输入文本' : 'ASR 识别文本'}
               value={result.transcript || "未识别到文本"}
               wide
             />
@@ -4109,19 +3932,19 @@ function VoiceTestResult({ session }: { session: VoiceTestSession | null }) {
               value={`¥${result.cost.totalCny.toFixed(6)}`}
             />
             <ResultField
-              label="文本回复（未播放）"
+              label="回复文本"
               value={result.replyText || "-"}
               wide
             />
           </div>
-          <Table
+          <details className="voice-details"><summary>各阶段耗时、成本与处理结果</summary><Table
             rowKey="key"
             size="small"
             pagination={false}
             scroll={{ x: 820 }}
             dataSource={result.stages}
             columns={voiceStageColumns}
-          />
+          /></details>
         </>
       )}
     </section>
@@ -4190,9 +4013,11 @@ function voiceTestStatusLabel(status?: VoiceTestSession["status"]): string {
   const labels: Record<VoiceTestSession["status"], string> = {
     CREATED: "会话已创建",
     COMMAND_SENT: "等待设备响应",
+    WAITING: "等待说话",
     RECORDING: "正在录音",
     UPLOADING: "正在上传",
     PROCESSING: "正在识别与处理",
+    PLAYING: "正在播报",
     STOPPING: "正在停止",
     COMPLETED: "测试完成",
     CANCELLED: "测试已停止",
@@ -4235,6 +4060,7 @@ function audioTestStatusLabel(status: DeviceAudioTestResult["status"]): string {
       GENERATING: "生成中",
       COMMAND_SENT: "等待开发板",
       PLAYING: "正在播放",
+      LISTENING: "等待回答",
       COMPLETED: "播放完成",
       CANCELLED: "已停止",
       FAILED: "播放失败",
@@ -4748,7 +4574,7 @@ function NavItem({
   onClick: () => void;
 }) {
   return (
-    <button className={active ? "active" : ""} onClick={onClick}>
+    <button className={active ? "active" : ""} onClick={onClick} title={label}>
       {icon}
       <span>{label}</span>
     </button>
@@ -4835,5 +4661,5 @@ function durationText(start: string, end: string | null) {
 }
 function readSectionHash(): Section {
   const value = window.location.hash.replace("#", "") as Section;
-  return value in sectionMeta ? value : "overview";
+  return value in sectionMeta ? value : "voice";
 }

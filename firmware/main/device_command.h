@@ -16,9 +16,12 @@ typedef struct {
     bool duplicate;
 } dx_device_command_result_t;
 
+bool device_command_is_fresh(const cJSON *command, dx_device_command_result_t *out_result);
+
 esp_err_t device_command_execute_json(
     const char *command_id,
     const cJSON *actions,
+    int expected_control_revision,
     dx_device_command_result_t *out_result
 );
 

@@ -4,6 +4,7 @@ import type {
   DeviceEvent,
   DeviceProfile,
   KnowledgeDocument,
+  KnowledgeSource,
   ProactiveSettings,
   SystemLog
 } from '@dongxin/shared';
@@ -12,11 +13,15 @@ import {
   DeviceEventSchema,
   DeviceProfileSchema,
   KnowledgeDocumentSchema,
+  KnowledgeSourceSchema,
   ProactiveSettingsSchema,
   SystemLogSchema
 } from '@dongxin/shared';
 import { z } from 'zod';
-import { readJsonFile, writeJsonFile } from '../storage.js';
+import { readJsonFile, writeJsonFile, updateJsonFile } from '../storage.js';
+import { retainRecent, retentionSettings } from '../runtime/retention.js';
+import { assertPilotDeviceLimit } from '../runtime/pilotLimits.js';
+import { initialKnowledgeDocuments, initialKnowledgeSources } from './knowledgeSeed.js';
 
 const DEFAULT_DEVICE_ID = 'demo-bath-heater-001';
 
@@ -32,8 +37,17 @@ export async function getDeviceProfile(deviceId: string): Promise<DeviceProfile 
 
 export async function saveDeviceProfiles(devices: DeviceProfile[]): Promise<DeviceProfile[]> {
   const parsed = z.array(DeviceProfileSchema).parse(devices);
+  assertPilotDeviceLimit(parsed);
   await writeJsonFile('devices.json', parsed);
   return parsed;
+}
+
+export function updateDeviceProfiles(update: (devices: DeviceProfile[]) => DeviceProfile[]): Promise<DeviceProfile[]> {
+  return updateJsonFile<DeviceProfile[], DeviceProfile[]>('devices.json', [createDefaultDeviceProfile()], (devices) => {
+    const value = z.array(DeviceProfileSchema).parse(update(z.array(DeviceProfileSchema).parse(devices)));
+    assertPilotDeviceLimit(value);
+    return { value, result: value };
+  });
 }
 
 export async function listDeviceEvents(): Promise<DeviceEvent[]> {
@@ -47,9 +61,9 @@ export async function appendDeviceEvent(event: Omit<DeviceEvent, 'id' | 'created
     id: randomUUID(),
     createdAt: new Date().toISOString()
   };
-  const events = await listDeviceEvents();
-  await writeJsonFile('device-events.json', [...events, nextEvent].slice(-500));
-  return nextEvent;
+  return updateJsonFile<DeviceEvent[], DeviceEvent>('device-events.json', [], (events) => ({
+    value: retainRecent([...events, nextEvent], (item) => item.createdAt, retentionSettings().events), result: nextEvent,
+  }));
 }
 
 export async function listDeviceCommands(): Promise<DeviceCommandRecord[]> {
@@ -65,16 +79,16 @@ export async function appendDeviceCommand(
     id: randomUUID(),
     createdAt: new Date().toISOString()
   };
-  const commands = await listDeviceCommands();
-  await writeJsonFile('device-commands.json', [...commands, nextCommand].slice(-500));
-  return nextCommand;
+  return updateJsonFile<DeviceCommandRecord[], DeviceCommandRecord>('device-commands.json', [], (commands) => ({
+    value: retainRecent([...commands, nextCommand], (item) => item.createdAt, retentionSettings().commands), result: nextCommand,
+  }));
 }
 
 export async function patchDeviceCommand(commandId: string, patch: Partial<DeviceCommandRecord>): Promise<DeviceCommandRecord | null> {
-  const commands = await listDeviceCommands();
+  return updateJsonFile<DeviceCommandRecord[], DeviceCommandRecord | null>('device-commands.json', [], (commands) => {
   const index = commands.findIndex((item) => item.id === commandId);
   if (index < 0) {
-    return null;
+    return { value: commands, result: null };
   }
 
   const nextCommand = DeviceCommandRecordSchema.parse({
@@ -83,11 +97,87 @@ export async function patchDeviceCommand(commandId: string, patch: Partial<Devic
   });
   const nextCommands = [...commands];
   nextCommands[index] = nextCommand;
-  await writeJsonFile('device-commands.json', nextCommands);
-  return nextCommand;
+  return { value: nextCommands, result: nextCommand };
+  });
+}
+
+export function finishDeviceCommand(
+  deviceId: string,
+  commandId: string,
+  status: 'APPLIED' | 'REJECTED' | 'FAILED',
+  completedAt = new Date().toISOString(),
+): Promise<{ command: DeviceCommandRecord; outcome: 'UPDATED' | 'DUPLICATE' | 'CONFLICT' } | null> {
+  return updateJsonFile<DeviceCommandRecord[], { command: DeviceCommandRecord; outcome: 'UPDATED' | 'DUPLICATE' | 'CONFLICT' } | null>(
+    'device-commands.json', [], (commands) => {
+      const index = commands.findIndex((item) => item.id === commandId && item.deviceId === deviceId);
+      if (index < 0) return { value: commands, result: null };
+
+      const current = DeviceCommandRecordSchema.parse(commands[index]);
+      if (current.status === 'APPLIED' || current.status === 'REJECTED' || current.status === 'FAILED') {
+        return { value: commands, result: { command: current, outcome: current.status === status ? 'DUPLICATE' : 'CONFLICT' } };
+      }
+      if (current.status !== 'QUEUED') {
+        return { value: commands, result: { command: current, outcome: 'CONFLICT' } };
+      }
+
+      const command = DeviceCommandRecordSchema.parse({ ...current, status, completedAt });
+      const next = [...commands];
+      next[index] = command;
+      return { value: next, result: { command, outcome: 'UPDATED' } };
+    },
+  );
+}
+
+let knowledgeSeedPromise: Promise<void> | null = null;
+
+async function ensureInitialKnowledge(): Promise<void> {
+  if (!knowledgeSeedPromise) {
+    knowledgeSeedPromise = (async () => {
+      const state = await readJsonFile('knowledge-seed-state.json', { applied: false, curationVersion: 0 });
+      if (state.applied && state.curationVersion >= 4) return;
+      const documents = await readJsonFile<KnowledgeDocument[]>('knowledge-documents.json', []);
+      if (!state.applied && !documents.length) await writeJsonFile('knowledge-documents.json', initialKnowledgeDocuments);
+      else {
+        const migrated = documents.map((document) => {
+          const seed = initialKnowledgeDocuments.find((item) => item.id === document.id);
+          return (state.curationVersion ?? 0) < 2 && seed && document.updatedBy === 'initial-curation' ? { ...document, questionVariants: seed.questionVariants } : document;
+        });
+        // Add only this release's new curated facts. Never recreate old entries
+        // that operators have removed, or overwrite manually edited knowledge.
+        const newIds = new Set(['dx-company-founded', 'dx-company-oem', 'dx-company-quality', 'dx-company-laboratory', 'dx-company-mes', 'dx-company-brand']);
+        if ((state.curationVersion ?? 0) < 4) initialKnowledgeDocuments.filter((seed) => seed.id.startsWith('dx-topic-')).forEach((seed) => newIds.add(seed.id));
+        migrated.push(...initialKnowledgeDocuments.filter((seed) => newIds.has(seed.id) && !documents.some((document) => document.id === seed.id)));
+        await writeJsonFile('knowledge-documents.json', migrated);
+      }
+      const sources = await readJsonFile<KnowledgeSource[]>('knowledge-sources.json', initialKnowledgeSources);
+      if ((state.curationVersion ?? 0) < 4) {
+        await writeJsonFile('knowledge-sources.json', sources.map((source) => {
+          const latest = initialKnowledgeSources.find((item) => item.id === source.id);
+          return ['dx-company-publicity', 'dx-ip-list', 'dx-awards-list'].includes(source.id) && source.processingStatus === 'CATALOGUED' && latest
+            ? { ...source, processingStatus: latest.processingStatus, note: latest.note, scope: latest.scope } : source;
+        }));
+      }
+      await writeJsonFile('knowledge-seed-state.json', { applied: true, curationVersion: 4 });
+    })().catch((error: unknown) => {
+      knowledgeSeedPromise = null;
+      throw error;
+    });
+  }
+  await knowledgeSeedPromise;
+}
+
+export async function listKnowledgeSources(): Promise<KnowledgeSource[]> {
+  await ensureInitialKnowledge();
+  const sources = await readJsonFile<KnowledgeSource[]>('knowledge-sources.json', []);
+  return z.array(KnowledgeSourceSchema).parse(sources.map((source) => ({ ...initialKnowledgeSources.find((item) => item.id === source.id), ...source })));
+}
+
+export async function saveKnowledgeSources(sources: KnowledgeSource[]): Promise<void> {
+  await writeJsonFile('knowledge-sources.json', z.array(KnowledgeSourceSchema).parse(sources));
 }
 
 export async function listKnowledgeDocuments(): Promise<KnowledgeDocument[]> {
+  await ensureInitialKnowledge();
   const documents = await readJsonFile<KnowledgeDocument[]>('knowledge-documents.json', []);
   return z.array(KnowledgeDocumentSchema).parse(documents);
 }
@@ -120,9 +210,9 @@ export async function appendSystemLog(log: Omit<SystemLog, 'id' | 'createdAt'>):
     id: randomUUID(),
     createdAt: new Date().toISOString()
   };
-  const logs = await listSystemLogs();
-  await writeJsonFile('system-logs.json', [...logs, nextLog].slice(-1000));
-  return nextLog;
+  return updateJsonFile<SystemLog[], SystemLog>('system-logs.json', [], (logs) => ({
+    value: retainRecent([...logs, nextLog], (item) => item.createdAt, retentionSettings().logs), result: nextLog,
+  }));
 }
 
 function createDefaultDeviceProfile(): DeviceProfile {

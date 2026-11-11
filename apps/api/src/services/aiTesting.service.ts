@@ -15,6 +15,8 @@ import type {
 import { BatchTestRunSchema } from "@dongxin/shared";
 import { z } from "zod";
 import { ApiError } from "../http/apiError.js";
+import { isEnvConfigured } from "../envStore.js";
+import { getReferencePricing, providerVendor } from './modelPricing.service.js';
 import * as repository from "../repositories/aiTesting.repository.js";
 import { getDeviceState } from "./deviceRegistry.service.js";
 import { listPrompts, findPrompt } from "./prompt.service.js";
@@ -23,10 +25,13 @@ import {
   findProviderForService,
   listProviderSecretStatuses,
   listProviders,
+  selectDefaultProvider,
 } from "./provider.service.js";
 import { synthesizeSpeech, transcribeAudio } from "./speech.service.js";
 import { getTestSet } from "./testSet.service.js";
-import { runLlmModuleTest } from "./voicePipeline.service.js";
+import { runLlmModuleTest, runVoicePipeline } from "./voicePipeline.service.js";
+import { withWorkContext } from '../runtime/workload.js';
+import { limitSetting } from '../runtime/limits.js';
 
 const ServiceTypeSchema = z.enum(["LLM", "ASR", "TTS"]);
 const SaveDefaultSchema = z.object({ providerId: z.string().min(1) });
@@ -43,7 +48,7 @@ const AddAudioItemSchema = z.object({
 });
 const StartBatchSchema = z.object({
   name: z.string().trim().min(1).max(100),
-  kind: z.enum(["ASR", "LLM", "TTS"]),
+  kind: z.enum(["ASR", "LLM", "TTS", "PIPELINE"]),
   providerId: z.string().min(1),
   deviceId: z.string().min(1).optional(),
   testSetId: z.string().min(1).optional(),
@@ -53,7 +58,7 @@ const StartBatchSchema = z.object({
   maxCases: z.number().int().min(1).max(200).default(50),
 });
 
-const activeRuns = new Map<string, { cancelled: boolean }>();
+const activeRuns = new Map<string, { cancelled: boolean; controller: AbortController }>();
 
 export async function getAiServiceConfiguration() {
   const [providers, secrets, defaults] = await Promise.all([
@@ -67,7 +72,13 @@ export async function getAiServiceConfiguration() {
       label: "本地研发文件存储",
       detail: "运行记录和研发音频保存在 D:\\workspace\\Dongxin\\data；生产部署前迁移到 PostgreSQL/RDS 和对象存储。",
     },
-    defaults,
+    defaults: {
+      ...defaults,
+      ASR: selectDefaultProvider(providers, defaults.ASR, 'ASR')?.id ?? null,
+      LLM: selectDefaultProvider(providers, defaults.LLM, 'LLM')?.id ?? null,
+      TTS: selectDefaultProvider(providers, defaults.TTS, 'TTS')?.id ?? null,
+    },
+    referencePricing: Object.fromEntries(providers.map((item) => [item.id, getReferencePricing(providerVendor(item) ?? '', item.model)])),
     providers,
     secrets,
   };
@@ -79,6 +90,9 @@ export async function setDefaultProvider(serviceType: unknown, requestBody: unkn
   const provider = findProviderForService(await listProviders(), body.providerId, type);
   if (!provider.enabled) {
     throw new ApiError(422, "PROVIDER_DISABLED", "请先启用该服务配置");
+  }
+  if (provider.apiKeyEnv && !isEnvConfigured(provider.apiKeyEnv)) {
+    throw new ApiError(422, 'PROVIDER_KEY_MISSING', '请先保存该服务商的 API Key');
   }
   return repository.saveDefaultProvider(type, provider.id);
 }
@@ -244,7 +258,7 @@ export async function deleteBatchTestRun(runId: string): Promise<void> {
 export async function startBatchTest(requestBody: unknown): Promise<BatchTestRun> {
   const body = StartBatchSchema.parse(requestBody);
   const providers = await listProviders();
-  const provider = findProviderForService(providers, body.providerId, body.kind);
+  const provider = findProviderForService(providers, body.providerId, body.kind === 'PIPELINE' ? 'LLM' : body.kind);
   if (!provider.enabled) throw new ApiError(422, "PROVIDER_DISABLED", "所选服务当前未启用");
   const source = await resolveBatchSource(body.kind, body.testSetId, body.asrDatasetId, body.caseIds, body.maxCases);
   if (!source.count) throw new ApiError(422, "BATCH_SOURCE_EMPTY", "所选测试数据为空");
@@ -273,9 +287,16 @@ export async function startBatchTest(requestBody: unknown): Promise<BatchTestRun
     updatedAt: now,
     error: null,
   });
-  await repository.saveBatchRun(run);
-  activeRuns.set(run.id, { cancelled: false });
-  void executeBatchRun(run, provider, source.cases, source.dataset).catch(() => undefined);
+  // Reserve synchronously before persistence so concurrent starts cannot all
+  // pass admission while waiting for the same file.
+  if (activeRuns.size >= limitSetting('BATCH_MAX_ACTIVE_RUNS', 2, 1, 16)) {
+    throw new ApiError(429, 'BATCH_SERVICE_BUSY', '批量任务已达上限，请等待任务完成后再试');
+  }
+  const controller = new AbortController();
+  activeRuns.set(run.id, { cancelled: false, controller });
+  try { await repository.saveBatchRun(run); }
+  catch (error) { activeRuns.delete(run.id); throw error; }
+  void withWorkContext(`batch:${run.id}`, controller.signal, () => executeBatchRun(run, provider, source.cases, source.dataset)).catch(() => undefined);
   return run;
 }
 
@@ -283,7 +304,7 @@ export async function cancelBatchTest(runId: string): Promise<BatchTestRun> {
   const run = await getBatchTestRun(runId);
   if (["COMPLETED", "CANCELLED", "FAILED"].includes(run.status)) return run;
   const active = activeRuns.get(run.id);
-  if (active) active.cancelled = true;
+  if (active) { active.cancelled = true; active.controller.abort(new Error('Batch stopped')); }
   return persistRun({
     ...run,
     status: "CANCELLED",
@@ -361,8 +382,9 @@ async function executeBatchRun(
   cases: TestCase[],
   dataset: AsrDataset | null,
 ): Promise<void> {
-  let run = await persistRun({ ...initial, status: "RUNNING", startedAt: new Date().toISOString() });
+  let run = initial;
   try {
+    run = await persistRun({ ...initial, status: "RUNNING", startedAt: new Date().toISOString() });
     const sourceItems = dataset?.items ?? cases;
     let sequence = 0;
     for (let repeat = 0; repeat < run.repeatCount; repeat += 1) {
@@ -370,15 +392,18 @@ async function executeBatchRun(
         if (activeRuns.get(run.id)?.cancelled) return;
         sequence += 1;
         const item = await executeBatchItem(run, provider, sourceItem, sequence);
+        if (activeRuns.get(run.id)?.cancelled) return;
         run = await persistRun({ ...run, items: [...run.items, item] });
       }
     }
+    if (activeRuns.get(run.id)?.cancelled) return;
     run = await persistRun({
       ...run,
       status: "COMPLETED",
       completedAt: new Date().toISOString(),
     });
   } catch (caught) {
+    if (activeRuns.get(run.id)?.cancelled) return;
     await persistRun({
       ...run,
       status: "FAILED",
@@ -429,6 +454,38 @@ async function executeBatchItem(
     createdAt,
   } satisfies BatchTestItem;
   try {
+    if (run.kind === "PIPELINE" && "inputText" in source) {
+      const response = await runVoicePipeline({
+        deviceId: run.deviceId || (await resolveDiagnosticDeviceId()),
+        inputSource: 'TEXT_SIMULATION',
+        text: source.inputText,
+        providerId: provider.id,
+        applyToDevice: false,
+        synthesizeSpeech: false,
+        simulateOffline: 'MISS',
+        requireWakeWord: false,
+      });
+      const failure = response.stages.find((stage) => stage.status === 'FAILED');
+      if (failure) throw new Error(failure.error || `${failure.key} 处理失败`);
+      const evaluation = evaluateLlmResult(source, {
+        aiResult: response.aiResult,
+        safetyResult: response.safetyResult,
+      });
+      return {
+        ...base,
+        actualText: response.replyText,
+        actualIntent: response.aiResult.intent,
+        actualResultType: response.aiResult.resultType,
+        actualSlots: response.aiResult.slots,
+        actualSafetyDecision: response.safetyResult.decision,
+        actualDeviceAction: response.safetyResult.commands.length > 0,
+        evaluationDetails: evaluation.details,
+        failureReason: evaluation.failureReason,
+        passed: evaluation.passed,
+        latencyMs: response.totalLatencyMs,
+        costCny: response.cost.totalCny,
+      };
+    }
     if (run.kind === "LLM" && "inputText" in source) {
       const response = await runLlmModuleTest({
         deviceId: run.deviceId || (await resolveDiagnosticDeviceId()),
@@ -513,7 +570,7 @@ async function executeBatchItem(
 
 export function evaluateLlmResult(
   source: TestCase,
-  response: Awaited<ReturnType<typeof runLlmModuleTest>>,
+  response: Pick<Awaited<ReturnType<typeof runLlmModuleTest>>, 'aiResult' | 'safetyResult'>,
 ): {
   passed: boolean;
   failureReason: string | null;
@@ -602,7 +659,7 @@ async function resolveBatchSource(
     if (!dataset) throw new ApiError(404, "ASR_DATASET_NOT_FOUND", "ASR 测试集不存在");
     return { dataset, testSet: null, cases: [], count: Math.min(dataset.items.length, maxCases) };
   }
-  if (!testSetId) throw new ApiError(422, "TEST_SET_REQUIRED", "LLM/TTS 批量测试必须选择文本测试集");
+  if (!testSetId) throw new ApiError(422, "TEST_SET_REQUIRED", "文本链路/LLM/TTS 批量测试必须选择文本测试集");
   const testSet = await getTestSet(testSetId);
   const selected = caseIds.length
     ? testSet.cases.filter((item) => caseIds.includes(item.id))

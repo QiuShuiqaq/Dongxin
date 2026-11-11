@@ -1,0 +1,33 @@
+[Unit]
+Description=Dongxin operations API (single-instance pilot)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=dongxin
+Group=dongxin
+WorkingDirectory=/opt/dongxin/current/apps/api
+# dotenv reads this file at startup; UI key changes write back to this same file.
+# Do not also use EnvironmentFile, which would keep stale key overrides on restart.
+Environment=DOTENV_CONFIG_PATH=/etc/dongxin/api.env
+Environment=DOTENV_CONFIG_QUIET=true
+ExecStart=/opt/dongxin/node/bin/node --import tsx src/index.ts
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/etc/dongxin /var/lib/dongxin
+MemoryMax=2500M
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

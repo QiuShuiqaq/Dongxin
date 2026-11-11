@@ -3,6 +3,8 @@ import {
   getProactiveSettings,
   handleProactiveEvent,
   listProactiveLogs,
+  simulateProactiveEvent,
+  simulateProactiveEntrance,
   updateProactiveSettings
 } from '../services/proactive.service.js';
 
@@ -12,6 +14,8 @@ export async function registerProactiveRoutes(server: FastifyInstance): Promise<
   server.patch('/api/proactive/settings', async (request) => updateProactiveSettings(request.body));
 
   server.post('/api/proactive/events', async (request) => handleProactiveEvent(request.body));
+  server.post('/api/development/proactive/simulate', async (request) => simulateProactiveEvent(request.body));
+  server.post('/api/development/proactive/entrance-simulation', async (request) => simulateProactiveEntrance(request.body));
 
   server.get('/api/proactive/logs', async (request) => {
     const limit = typeof request.query === 'object' && request.query && 'limit' in request.query

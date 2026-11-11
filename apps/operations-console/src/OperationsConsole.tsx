@@ -1,6 +1,7 @@
 import {
   AlertOutlined,
   AppstoreOutlined,
+  BellOutlined,
   CloudServerOutlined,
   DatabaseOutlined,
   DesktopOutlined,
@@ -13,8 +14,6 @@ import type {
   DeviceCommandRecord,
   DeviceEvent,
   DeviceProfile,
-  KnowledgeCategory,
-  KnowledgeDocument,
   ProactiveMode,
   SystemLog,
 } from "@dongxin/shared";
@@ -23,9 +22,11 @@ import {
   App,
   Badge,
   Button,
+  Drawer,
   Empty,
   Input,
   InputNumber,
+  Segmented,
   Select,
   Skeleton,
   Space,
@@ -35,12 +36,17 @@ import {
   Tooltip,
 } from "antd";
 import type { FormEvent, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import KnowledgeWorkbench from './KnowledgeWorkbench';
+import AiServiceManagement from './AiServiceManagement';
+import OperationsAiValidation from './OperationsAiValidation';
+import OperationsVoiceHistory from './OperationsVoiceHistory';
+import RuntimeStatusPanel from './RuntimeStatusPanel';
 import {
   AuthenticationRequiredError,
-  createKnowledgeDocument,
   getOperationsSession,
   getOperationsConsole,
+  getOperationsDevicePage,
   loginOperations,
   logoutOperations,
   updateProactiveSettings,
@@ -71,14 +77,31 @@ const sectionMeta: Record<Section, { label: string; description: string }> = {
   system: { label: "系统状态", description: "检查平台部署依赖和上线门禁" },
 };
 
-const categoryOptions: Array<{ value: KnowledgeCategory; label: string }> = [
-  { value: "PRODUCT", label: "产品资料" },
-  { value: "INSTALL", label: "安装说明" },
-  { value: "USAGE", label: "使用说明" },
-  { value: "TROUBLESHOOTING", label: "故障处理" },
-  { value: "AFTER_SALES", label: "售后规则" },
-  { value: "MAINTENANCE", label: "保养清洁" },
-];
+type NoticeTier = 'Tier-C' | 'Tier-H' | 'Tier-M' | 'Tier-L';
+type NoticeSeverity = 'error' | 'warning' | 'success' | 'info';
+interface OperationalNotice {
+  id: string;
+  tier: NoticeTier;
+  severity: NoticeSeverity;
+  title: string;
+  detail: string;
+  target: Section;
+}
+
+function operationalNotices(data: OperationsConsoleData): OperationalNotice[] {
+  const notices: OperationalNotice[] = [];
+  if (data.metrics.faultDevices > 0) notices.push({ id: 'fault-devices', tier: 'Tier-H', severity: 'error',
+    title: `${data.metrics.faultDevices} 台设备处于故障状态`, detail: '查看设备状态并核对故障记录', target: 'devices' });
+  if (data.mqtt.enabled && !data.mqtt.connected) notices.push({ id: 'mqtt-disconnected', tier: 'Tier-H', severity: 'error',
+    title: 'MQTT 网关未连接', detail: '设备消息可能无法正常到达', target: 'system' });
+  if (data.knowledgeStats.review > 0) notices.push({ id: 'knowledge-review', tier: 'Tier-M', severity: 'info',
+    title: `${data.knowledgeStats.review} 条知识待审核`, detail: '审核后才会进入线上问答', target: 'knowledge' });
+  if (data.environment === 'BOUNDED_HARDWARE_PILOT' && data.productionReadiness.database === 'LOCAL_JSON_NOT_PRODUCTION') {
+    notices.push({ id: 'storage-limit', tier: 'Tier-H', severity: 'warning', title: '当前仅限少量样机试点',
+      detail: '正式接入消费者前需完成数据库迁移', target: 'system' });
+  }
+  return notices;
+}
 
 export default function OperationsConsole() {
   const { message } = App.useApp();
@@ -87,13 +110,18 @@ export default function OperationsConsole() {
   const [authRequired, setAuthRequired] = useState(false);
   const [authUser, setAuthUser] = useState<OperationsUser | null>(null);
   const [section, setSection] = useState<Section>(() => readHash());
-  const [deviceFilter, setDeviceFilter] = useState("ALL");
+  const [knowledgeRefresh, setKnowledgeRefresh] = useState(0);
+  const [noticesOpen, setNoticesOpen] = useState(false);
+  const refreshId = useRef(0);
 
   async function refresh(silent = false) {
+    const id = ++refreshId.current;
     if (!silent) setLoading(true);
     try {
-      setData(await getOperationsConsole());
+      const result = await getOperationsConsole(section);
+      if (id === refreshId.current) setData(result);
     } catch (error) {
+      if (id !== refreshId.current) return;
       if (error instanceof AuthenticationRequiredError) {
         setAuthRequired(true);
         setData(null);
@@ -101,7 +129,7 @@ export default function OperationsConsole() {
         message.error(error instanceof Error ? error.message : String(error));
       }
     } finally {
-      setLoading(false);
+      if (id === refreshId.current) setLoading(false);
     }
   }
 
@@ -110,7 +138,6 @@ export default function OperationsConsole() {
       .then((session) => {
         setAuthUser(session.user);
         setAuthRequired(false);
-        return refresh();
       })
       .catch((error) => {
         setLoading(false);
@@ -123,10 +150,12 @@ export default function OperationsConsole() {
   }, []);
 
   useEffect(() => {
-    if (authRequired) return;
-    const timer = window.setInterval(() => void refresh(true), 10_000);
+    if (authRequired || !authUser) return;
+    void refresh();
+    if (section === 'knowledge' || section === 'ai') return;
+    const timer = window.setInterval(() => { if (!document.hidden) void refresh(true); }, 30_000);
     return () => window.clearInterval(timer);
-  }, [authRequired]);
+  }, [authRequired, authUser, section]);
 
   if (authRequired) {
     return (
@@ -134,18 +163,20 @@ export default function OperationsConsole() {
         onAuthenticated={(user) => {
           setAuthUser(user);
           setAuthRequired(false);
-          void refresh();
         }}
       />
     );
   }
 
   function navigate(next: Section) {
+    if (section !== next) { refreshId.current++; setData(null); }
     setSection(next);
     window.history.replaceState(null, "", `#${next}`);
   }
 
   const meta = sectionMeta[section];
+  const notices = data ? operationalNotices(data) : [];
+  const urgentCount = notices.filter((item) => item.tier === 'Tier-C' || item.tier === 'Tier-H').length;
   return (
     <div className="ops-shell">
       <aside className="ops-sidebar">
@@ -231,19 +262,18 @@ export default function OperationsConsole() {
         <header className="ops-header">
           <div>
             <h1>{meta.label}</h1>
-            <p>{meta.description}</p>
           </div>
-          <Space>
-            <Tag color="orange">部署准备阶段</Tag>
+          <Space className="ops-header-actions">
             <Badge
               status={data?.mqtt.connected ? "success" : "error"}
-              text={data?.mqtt.connected ? "服务正常" : "服务异常"}
+              text={data?.mqtt.connected ? "MQTT 已连接" : "MQTT 未连接"}
             />
+            <Tooltip title="待处理事项"><Badge count={urgentCount} size="small" offset={[-2, 2]}><Button icon={<BellOutlined />} aria-label="待处理事项" onClick={() => setNoticesOpen(true)} /></Badge></Tooltip>
             <Tooltip title="刷新运营数据">
               <Button
                 icon={<ReloadOutlined />}
                 loading={loading}
-                onClick={() => void refresh()}
+                onClick={() => { setKnowledgeRefresh((value) => value + 1); void refresh(); }}
                 aria-label="刷新"
               />
             </Tooltip>
@@ -257,25 +287,24 @@ export default function OperationsConsole() {
             <Overview data={data} onNavigate={navigate} />
           ) : null}
           {data && section === "devices" ? (
-            <Devices
-              data={data}
-              filter={deviceFilter}
-              onFilter={setDeviceFilter}
-            />
+            <Devices refreshKey={knowledgeRefresh} />
           ) : null}
           {data && section === "knowledge" ? (
-            <KnowledgeOperations
-              documents={data.knowledgeDocuments}
-              onChanged={() => refresh(true)}
-            />
+            <KnowledgeWorkbench user={authUser} refreshKey={knowledgeRefresh} />
           ) : null}
           {data && section === "ai" ? (
-            <AiOperations data={data} onChanged={() => refresh(true)} />
+            <AiOperations data={data} canManage={authUser?.role === 'ADMIN'} onChanged={() => refresh(true)} />
           ) : null}
           {data && section === "records" ? <Records data={data} /> : null}
           {data && section === "system" ? <SystemPage data={data} /> : null}
         </div>
       </main>
+      <Drawer title="待处理事项" open={noticesOpen} onClose={() => setNoticesOpen(false)} size="min(460px, 100vw)">
+        {notices.length ? <div className="ops-notice-list">{notices.map((item) => <button className={`ops-notice severity-${item.severity}`} key={item.id} onClick={() => { setNoticesOpen(false); navigate(item.target); }}>
+          <span className="ops-notice-meta"><b>{item.tier}</b><span>{item.severity.toUpperCase()}</span></span>
+          <strong>{item.title}</strong><small>{item.detail}</small>
+        </button>)}</div> : <Empty description="当前没有待处理事项" />}
+      </Drawer>
     </div>
   );
 }
@@ -357,8 +386,14 @@ function Overview({
   const onlineRate = data.metrics.totalDevices
     ? Math.round((data.metrics.onlineDevices / data.metrics.totalDevices) * 100)
     : 0;
+  const notices = operationalNotices(data);
   return (
     <div className="ops-stack">
+      <div className="ops-workbar" aria-label="运营常用操作">
+        <Button type="primary" icon={<DesktopOutlined />} onClick={() => onNavigate('devices')}>查设备</Button>
+        <Button icon={<DatabaseOutlined />} onClick={() => onNavigate('knowledge')}>审核知识</Button>
+        <Button icon={<AlertOutlined />} onClick={() => onNavigate('records')}>告警与记录</Button>
+      </div>
       <section className="ops-metrics">
         <Metric
           label="设备总数"
@@ -372,30 +407,20 @@ function Overview({
           tone="good"
         />
         <Metric
-          label="开放告警"
-          value={String(data.metrics.openAlerts)}
-          detail="需要运维确认"
-          tone={data.metrics.openAlerts ? "warn" : "good"}
-        />
-        <Metric
-          label="命令成功率"
-          value={
-            data.metrics.completedCommands
-              ? `${data.metrics.commandSuccessRate}%`
-              : "-"
-          }
-          detail={
-            data.metrics.completedCommands ? "历史终态命令" : "暂无生产命令"
-          }
+          label="故障设备"
+          value={String(data.metrics.faultDevices)}
+          detail="当前设备状态"
+          tone={data.metrics.faultDevices ? "warn" : "good"}
         />
       </section>
-      <Alert
-        type="warning"
-        showIcon
-        title="当前仍是本地预生产环境"
-        description="平台功能正在按服务器部署范围收口。正式上线前还需要员工登录、数据库迁移、设备独立密钥、HTTPS、备份和监控。"
-      />
       <div className="ops-two-columns">
+        <section className="ops-panel">
+          <PanelTitle title="待处理" action={<span className="ops-section-count">{notices.length}</span>} />
+          {notices.length ? <div className="ops-notice-list">{notices.map((item) => <button key={item.id} className={`ops-notice severity-${item.severity}`} onClick={() => onNavigate(item.target)}>
+            <span className="ops-notice-meta"><b>{item.tier}</b><span>{item.severity.toUpperCase()}</span></span>
+            <strong>{item.title}</strong><small>{item.detail}</small>
+          </button>)}</div> : <p className="ops-empty-line">当前没有待处理事项</p>}
+        </section>
         <section className="ops-panel">
           <PanelTitle
             title="设备健康"
@@ -417,72 +442,50 @@ function Overview({
                   />
                 ))
             ) : (
-              <Empty description="暂无真实设备" />
+              <p className="ops-empty-line">暂无已接入设备</p>
             )}
           </div>
         </section>
-        <section className="ops-panel">
-          <PanelTitle title="内容与服务" />
-          <div className="ops-summary-list">
-            <SummaryRow
-              label="知识文档"
-              value={`${data.knowledgeDocuments.length} 条`}
-              onClick={() => onNavigate("knowledge")}
-            />
-            <SummaryRow
-              label="已启用AI服务"
-              value={`${data.providers.filter((item) => item.enabled).length} 个`}
-              onClick={() => onNavigate("ai")}
-            />
-            <SummaryRow
-              label="主动沟通"
-              value={data.proactiveSettings.enabled ? "已开启" : "已关闭"}
-              onClick={() => onNavigate("ai")}
-            />
-            <SummaryRow
-              label="系统日志"
-              value={`${data.auditLogs.length} 条`}
-              onClick={() => onNavigate("records")}
-            />
-          </div>
-        </section>
       </div>
-      <section className="ops-panel">
-        <PanelTitle title="最近设备命令" />
-        <CommandTable commands={data.recentCommands.slice(0, 8)} />
-      </section>
     </div>
   );
 }
 
-function Devices({
-  data,
-  filter,
-  onFilter,
-}: {
-  data: OperationsConsoleData;
-  filter: string;
-  onFilter: (value: string) => void;
-}) {
-  const rows = useMemo(
-    () =>
-      data.devices.filter(
-        (device) => filter === "ALL" || device.status === filter,
-      ),
-    [data.devices, filter],
-  );
+function Devices({ refreshKey }: { refreshKey: number }) {
+  const { message } = App.useApp();
+  const [filter, setFilter] = useState<string>();
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ items: DeviceProfile[]; total: number }>({ items: [], total: 0 });
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      setLoading(true);
+      try { const value = await getOperationsDevicePage({ page: String(page), pageSize: '20', search, ...(filter ? { status: filter } : {}) }); if (active) setResult(value); }
+      catch (error) { if (active) message.error(error instanceof Error ? error.message : String(error)); }
+      finally { if (active) setLoading(false); }
+    };
+    const debounce = window.setTimeout(() => void load(), 180);
+    const timer = window.setInterval(() => { if (!document.hidden) void load(); }, 30_000);
+    return () => { active = false; window.clearTimeout(debounce); window.clearInterval(timer); };
+  }, [page, filter, search, refreshKey]);
   return (
     <div className="ops-stack">
       <div className="list-toolbar">
         <div>
-          <strong>{rows.length}</strong>
+          <strong>{result.total}</strong>
           <span>台设备</span>
         </div>
+        <Input.Search aria-label="搜索设备" placeholder="搜索设备编号、名称、型号或固件" allowClear style={{ maxWidth: 420 }} value={search}
+          onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
         <Select
           value={filter}
-          onChange={onFilter}
+          placeholder="全部状态"
+          allowClear
+          style={{ minWidth: 130 }}
+          onChange={(value) => { setFilter(value); setPage(1); }}
           options={[
-            { value: "ALL", label: "全部状态" },
             { value: "ONLINE", label: "在线" },
             { value: "OFFLINE", label: "离线" },
             { value: "FAULT", label: "故障" },
@@ -493,8 +496,9 @@ function Devices({
         <Table
           rowKey="id"
           scroll={{ x: 980 }}
-          dataSource={rows}
-          pagination={false}
+          dataSource={result.items}
+          loading={loading}
+          pagination={{ current: page, pageSize: 20, total: result.total, showSizeChanger: false, onChange: setPage }}
           locale={{ emptyText: "暂无已接入设备" }}
           columns={[
             {
@@ -542,147 +546,14 @@ function Devices({
   );
 }
 
-function KnowledgeOperations({
-  documents,
-  onChanged,
-}: {
-  documents: KnowledgeDocument[];
-  onChanged: () => Promise<void> | void;
-}) {
-  const { message } = App.useApp();
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState<KnowledgeCategory>("PRODUCT");
-  const [content, setContent] = useState("");
-  const [tags, setTags] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  async function save() {
-    if (!title.trim() || !content.trim()) {
-      message.warning("请填写资料名称和正文");
-      return;
-    }
-    setSaving(true);
-    try {
-      await createKnowledgeDocument({
-        title: title.trim(),
-        category,
-        content: content.trim(),
-        tags: tags
-          .split(/[，,]/)
-          .map((item) => item.trim())
-          .filter(Boolean),
-        status: "PUBLISHED",
-      });
-      setTitle("");
-      setContent("");
-      setTags("");
-      await onChanged();
-      message.success("知识资料已保存");
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="ops-stack">
-      <Alert
-        type="info"
-        showIcon
-        title="只录入已确认的正式资料"
-        description="产品说明、安装维护、故障码和售后规则应注明版本；资料没有明确答案时，系统统一引导联系官方售后。"
-      />
-      <div className="ops-two-columns knowledge-layout">
-        <section className="ops-panel knowledge-editor">
-          <PanelTitle title="新增资料" />
-          <label>
-            <span>资料名称</span>
-            <Input
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="例如：DX-AI-01使用说明"
-            />
-          </label>
-          <label>
-            <span>分类</span>
-            <Select
-              value={category}
-              onChange={setCategory}
-              options={categoryOptions}
-            />
-          </label>
-          <label>
-            <span>标签</span>
-            <Input
-              value={tags}
-              onChange={(event) => setTags(event.target.value)}
-              placeholder="多个标签用逗号分隔"
-            />
-          </label>
-          <label>
-            <span>正文</span>
-            <Input.TextArea
-              value={content}
-              onChange={(event) => setContent(event.target.value)}
-              rows={10}
-              placeholder="粘贴经确认的产品资料内容"
-            />
-          </label>
-          <Button type="primary" loading={saving} onClick={() => void save()}>
-            保存并发布
-          </Button>
-        </section>
-        <section className="ops-panel">
-          <PanelTitle
-            title="资料清单"
-            action={<Tag>{documents.length} 条</Tag>}
-          />
-          <Table
-            rowKey="id"
-            size="small"
-            dataSource={documents}
-            pagination={{ pageSize: 10, showSizeChanger: false }}
-            locale={{ emptyText: "等待导入东信正式资料" }}
-            columns={[
-              { title: "名称", dataIndex: "title", ellipsis: true },
-              {
-                title: "分类",
-                dataIndex: "category",
-                width: 110,
-                render: (value: KnowledgeCategory) =>
-                  categoryOptions.find((item) => item.value === value)?.label ||
-                  value,
-              },
-              {
-                title: "状态",
-                dataIndex: "status",
-                width: 90,
-                render: (value: string) => (
-                  <Tag color={value === "PUBLISHED" ? "green" : "default"}>
-                    {value === "PUBLISHED" ? "已发布" : "草稿"}
-                  </Tag>
-                ),
-              },
-              {
-                title: "更新",
-                dataIndex: "updatedAt",
-                width: 165,
-                render: formatDate,
-              },
-            ]}
-          />
-        </section>
-      </div>
-    </div>
-  );
-}
 
 function AiOperations({
   data,
+  canManage,
   onChanged,
 }: {
   data: OperationsConsoleData;
+  canManage: boolean;
   onChanged: () => Promise<void> | void;
 }) {
   const { message } = App.useApp();
@@ -691,12 +562,19 @@ function AiOperations({
   const [interval, setIntervalMinutes] = useState(
     data.proactiveSettings.minIntervalMinutes,
   );
+  const [quietEnabled, setQuietEnabled] = useState(data.proactiveSettings.quietHours.enabled);
+  const [quietStart, setQuietStart] = useState(data.proactiveSettings.quietHours.start);
+  const [quietEnd, setQuietEnd] = useState(data.proactiveSettings.quietHours.end);
   const [saving, setSaving] = useState(false);
+  const [view, setView] = useState<'services' | 'policy' | 'validation'>('services');
 
   useEffect(() => {
     setEnabled(data.proactiveSettings.enabled);
     setMode(data.proactiveSettings.mode);
     setIntervalMinutes(data.proactiveSettings.minIntervalMinutes);
+    setQuietEnabled(data.proactiveSettings.quietHours.enabled);
+    setQuietStart(data.proactiveSettings.quietHours.start);
+    setQuietEnd(data.proactiveSettings.quietHours.end);
   }, [data.proactiveSettings]);
 
   async function save() {
@@ -706,6 +584,7 @@ function AiOperations({
         enabled,
         mode,
         minIntervalMinutes: interval,
+        quietHours: { enabled: quietEnabled, start: quietStart, end: quietEnd },
       });
       await onChanged();
       message.success("主动沟通设置已更新");
@@ -718,51 +597,22 @@ function AiOperations({
 
   return (
     <div className="ops-stack">
-      <section className="ops-panel">
-        <PanelTitle title="线上AI服务" />
-        <Table
-          rowKey="id"
-          size="small"
-          pagination={false}
-          dataSource={data.providers}
-          columns={[
-            {
-              title: "类型",
-              dataIndex: "serviceType",
-              width: 90,
-              render: (value: string) => <Tag>{value}</Tag>,
-            },
-            { title: "服务", dataIndex: "name" },
-            { title: "模型", dataIndex: "model", ellipsis: true },
-            {
-              title: "状态",
-              dataIndex: "enabled",
-              width: 100,
-              render: (value: boolean) => (
-                <Badge
-                  status={value ? "success" : "default"}
-                  text={value ? "启用" : "停用"}
-                />
-              ),
-            },
-          ]}
-        />
-      </section>
+      <div className="ops-workbar"><Segmented aria-label="AI 运营视图" value={view} onChange={(value) => setView(value as 'services' | 'policy' | 'validation')} options={[{ label: '服务配置', value: 'services' }, { label: '运行策略', value: 'policy' }, { label: 'AI 验证', value: 'validation' }]} /></div>
+      {view === 'services' ? <AiServiceManagement canManage={canManage} /> : view === 'validation' ? <OperationsAiValidation providers={data.providers} devices={data.devices} canManage={canManage} /> : <>
       <section className="ops-panel proactive-settings">
-        <PanelTitle title="主动沟通" />
+        <PanelTitle title="主动沟通" action={<Button type="primary" loading={saving} disabled={!canManage} onClick={() => void save()}>保存设置</Button>} />
         <div className="setting-row">
           <div>
             <strong>启用主动沟通</strong>
-            <span>关闭后仍记录设备事件，但不生成主动播报</span>
           </div>
-          <Switch checked={enabled} onChange={setEnabled} />
+          <Switch checked={enabled} onChange={setEnabled} disabled={!canManage} />
         </div>
         <div className="setting-row">
           <div>
             <strong>话术模式</strong>
-            <span>第一版仅影响提醒措辞和安静策略</span>
           </div>
           <Select
+            disabled={!canManage}
             value={mode}
             onChange={setMode}
             options={[
@@ -775,41 +625,45 @@ function AiOperations({
         <div className="setting-row">
           <div>
             <strong>最小提醒间隔</strong>
-            <span>限制重复播报，单位为分钟</span>
           </div>
           <InputNumber
+            disabled={!canManage}
             min={1}
             max={1440}
             value={interval}
             onChange={(value) => setIntervalMinutes(value || 1)}
           />
         </div>
-        <Button type="primary" loading={saving} onClick={() => void save()}>
-          保存设置
-        </Button>
+        <div className="setting-row">
+          <div>
+            <strong>安静时段</strong>
+          </div>
+          <Switch checked={quietEnabled} onChange={setQuietEnabled} disabled={!canManage} />
+        </div>
+        {quietEnabled && <div className="setting-row">
+          <div><strong>起止时间</strong></div>
+          <div className="quiet-hours-inputs">
+            <input type="time" value={quietStart} onChange={(event) => setQuietStart(event.target.value)} disabled={!canManage} aria-label="安静时段开始" />
+            <span>至</span>
+            <input type="time" value={quietEnd} onChange={(event) => setQuietEnd(event.target.value)} disabled={!canManage} aria-label="安静时段结束" />
+          </div>
+        </div>}
       </section>
-      <Alert
-        type="info"
-        showIcon
-        title="AI服务的密钥和模型参数由研发人员维护"
-        description="运营平台只展示已批准的线上服务并管理业务策略，避免日常运维误改底层模型配置。"
-      />
+      </>}
     </div>
   );
 }
 
 function Records({ data }: { data: OperationsConsoleData }) {
-  const entries = buildAuditEntries(data.auditLogs, data.recentCommands);
+  const [view, setView] = useState<'alerts' | 'voice' | 'audit' | 'commands'>('alerts');
+  const entries = buildAuditEntries(data.auditLogs);
   return (
     <div className="ops-stack">
-      <section className="ops-panel">
+      <div className="ops-workbar"><Segmented aria-label="记录类型" value={view} onChange={setView} options={[{ label: `设备告警 ${data.alerts.length}`, value: 'alerts' }, { label: '语音记录', value: 'voice' }, { label: '操作记录', value: 'audit' }, { label: '设备命令', value: 'commands' }]} /></div>
+      {view === 'voice' ? <OperationsVoiceHistory /> : null}
+      {view === 'alerts' ? <section className="ops-panel">
         <PanelTitle
-          title="设备告警"
-          action={
-            <Tag color={data.alerts.length ? "red" : "green"}>
-              {data.alerts.length} 条
-            </Tag>
-          }
+          title="近期故障事件"
         />
         {data.alerts.length ? (
           <Table
@@ -841,8 +695,8 @@ function Records({ data }: { data: OperationsConsoleData }) {
         ) : (
           <Empty description="当前没有设备告警" />
         )}
-      </section>
-      <section className="ops-panel">
+      </section> : null}
+      {view === 'audit' ? <section className="ops-panel">
         <PanelTitle title="操作与系统日志" action={<Tag>只读</Tag>} />
         <Table
           rowKey="id"
@@ -867,7 +721,8 @@ function Records({ data }: { data: OperationsConsoleData }) {
             { title: "结果", dataIndex: "result", width: 130 },
           ]}
         />
-      </section>
+      </section> : null}
+      {view === 'commands' ? <section className="ops-panel"><PanelTitle title="设备命令" /><CommandTable commands={data.recentCommands} /></section> : null}
     </div>
   );
 }
@@ -876,6 +731,7 @@ function SystemPage({ data }: { data: OperationsConsoleData }) {
   const readiness = data.productionReadiness;
   return (
     <div className="ops-stack">
+      {data.runtime && <RuntimeStatusPanel status={data.runtime} mqtt={data.mqtt} />}
       <section className="ops-panel">
         <PanelTitle title="运行依赖" />
         <div className="infra-grid">
@@ -889,7 +745,9 @@ function SystemPage({ data }: { data: OperationsConsoleData }) {
           <Infra
             title="数据存储"
             value={readiness.database}
-            detail="正式部署前迁移数据库"
+            detail={readiness.deployment === "BOUNDED_PILOT_ONLY"
+              ? `样机试点 ${readiness.pilotDeviceCount}/${readiness.pilotDeviceLimit} 台；正式部署前须迁移数据库`
+              : "当前仍是 JSON；正式部署前必须迁移数据库"}
           />
           <Infra
             title="员工认证"
@@ -909,31 +767,21 @@ function SystemPage({ data }: { data: OperationsConsoleData }) {
         type="error"
         showIcon
         title="生产上线门禁尚未满足"
-        description="当前平台可用于本地联调。购买云服务器后，需要依次完成HTTPS、员工认证、数据库、设备独立身份、备份、监控和文本日志清理。"
+        description="当前只支持本地研发或显式授权的少量样机试点。正式上线前必须完成 HTTPS、员工认证、生产数据库、设备独立身份及云端部署验证。当前调度与数据清理结果不能替代生产容量测试。"
       />
     </div>
   );
 }
 
-function buildAuditEntries(logs: SystemLog[], commands: DeviceCommandRecord[]) {
-  return [
-    ...logs.map((log) => ({
+function buildAuditEntries(logs: SystemLog[]) {
+  return logs.map((log) => ({
       id: log.id,
       time: log.createdAt,
       type: log.type,
-      actor: "system",
+      actor: typeof log.payload.actor === 'string' ? log.payload.actor : "system",
       target: log.summary,
       result: "RECORDED",
-    })),
-    ...commands.slice(0, 30).map((command) => ({
-      id: command.id,
-      time: command.createdAt,
-      type: "COMMAND",
-      actor: "platform",
-      target: `${command.deviceId} / ${command.intent}`,
-      result: command.status,
-    })),
-  ].sort((a, b) => b.time.localeCompare(a.time));
+    })).sort((a, b) => b.time.localeCompare(a.time));
 }
 
 function DeviceHealth({
@@ -984,22 +832,6 @@ function CommandTable({ commands }: { commands: DeviceCommandRecord[] }) {
         },
       ]}
     />
-  );
-}
-function SummaryRow({
-  label,
-  value,
-  onClick,
-}: {
-  label: string;
-  value: string;
-  onClick: () => void;
-}) {
-  return (
-    <button onClick={onClick}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </button>
   );
 }
 function Infra({
@@ -1070,7 +902,7 @@ function Nav({
   onClick: () => void;
 }) {
   return (
-    <button className={active ? "active" : ""} onClick={onClick}>
+    <button className={active ? "active" : ""} onClick={onClick} title={label}>
       {icon}
       <span>{label}</span>
       {badge ? <i>{badge}</i> : null}

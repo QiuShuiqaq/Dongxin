@@ -23,7 +23,12 @@ import { callModel } from "../modelGateway.js";
 import { applySafetyRules } from "../rules.js";
 import { getProductionCostSettings } from "../repositories/productionCost.repository.js";
 import { appendLog } from "./log.service.js";
-import { answerKnowledgeQuestion } from "./knowledge.service.js";
+import { getVoiceKnowledge } from "./knowledge.service.js";
+import { matchOnlineRule, matchDirectDeviceCommand, looksLikeProblem, normalizeRuleText } from './onlineRule.service.js';
+export { matchOnlineRule } from './onlineRule.service.js';
+import { getDeviceProfile } from '../repositories/system.repository.js';
+import { isConversationEnd, voiceConversations } from "./conversation.service.js";
+import type { ConversationMessage } from "./conversation.service.js";
 import { findPrompt, listPrompts } from "./prompt.service.js";
 import { findProvider, getDefaultProviderForService, listProviders } from "./provider.service.js";
 import { getTestSet } from "./testSet.service.js";
@@ -37,35 +42,146 @@ import { intentToDeviceAction } from "./deviceAccess.service.js";
 import { publishQueuedDeviceCommand } from "./mqttGateway.service.js";
 import { synthesizeSpeech, transcribeAudio } from "./speech.service.js";
 import { createDeviceVoiceReplyAsset } from "./deviceAudioAsset.service.js";
+import { runVoiceWork, assertWorkActive } from '../runtime/workload.js';
+import { getDeviceControlRevision } from '../deviceSimulator.js';
+import {
+  appendProductionVoiceHistory,
+  type ProductionVoiceHistoryInput,
+} from '../repositories/productionVoiceHistory.repository.js';
+import { ApiError } from '../http/apiError.js';
+import { voiceCommandGuard, assertVoiceRevision } from '../runtime/commandGuard.js';
+import { patchDeviceCommand } from '../repositories/system.repository.js';
+import { takeProactiveConfirmation } from './proactiveConfirmation.service.js';
 
 export async function runLlmModuleTest(input: {
   deviceId: string;
   text: string;
   providerId?: string;
   promptId?: string;
+  conversationId?: string;
+  llmTemperature?: number;
+  llmMaxOutputTokens?: number;
+  llmHistoryTurns?: number;
 }) {
-  const deviceState = await getDeviceState(input.deviceId);
-  const result = await resolveByLlm(
-    input.text.trim(),
-    deviceState,
-    input.providerId,
-    input.promptId,
-  );
-  return {
-    inputText: input.text.trim(),
-    providerId: result.providerId,
-    aiResult: result.aiResult,
-    safetyResult: applySafetyRules(result.aiResult, deviceState),
-    latencyMs: result.latencyMs,
-    usage: result.usage,
-    error: result.error,
-  };
+  return runVoiceWork(input.deviceId, () => voiceConversations.run({ deviceId: input.deviceId, channel: 'llm-test' }, input, async (context) => {
+    const deviceState = await getDeviceState(input.deviceId);
+    const result = await resolveByLlm(input.text.trim(), deviceState, input.providerId, input.promptId,
+      input.llmHistoryTurns === undefined ? context.messages : input.llmHistoryTurns === 0 ? [] : context.messages.slice(-input.llmHistoryTurns * 2),
+      undefined, input.llmTemperature, input.llmMaxOutputTokens);
+    const value = {
+      conversationId: context.id,
+      inputText: input.text.trim(),
+      providerId: result.providerId,
+      aiResult: result.aiResult,
+      safetyResult: applySafetyRules(result.aiResult, deviceState),
+      latencyMs: result.latencyMs,
+      usage: result.usage,
+      error: result.error,
+    };
+    return { value, turn: result.error ? undefined : { text: input.text.trim(), aiResult: result.aiResult, replyText: result.aiResult.speak }, end: isConversationEnd(input.text) };
+  }), { priority: 0 });
 }
 
 export async function runVoicePipeline(
   requestBody: unknown,
+  options: { priority?: number; signal?: AbortSignal; recordProductionHistory?: boolean } = {},
 ): Promise<VoicePipelineResponse> {
   const body = VoicePipelineRequestSchema.parse(requestBody);
+  initialRevisions.set(body, getDeviceControlRevision(body.deviceId));
+  try {
+    const response = await runVoiceWork(body.deviceId, () => runAdmittedPipeline(body), {
+      priority: options.priority ?? (body.inputSource.startsWith('DEVICE') ? 1 : 0),
+      signal: options.signal,
+    });
+    if (options.recordProductionHistory && body.inputSource.startsWith('DEVICE')) {
+      await recordProductionVoiceHistorySafely(productionRecordFromPipeline(body, response));
+    }
+    return response;
+  } catch (error) {
+    if (options.recordProductionHistory && body.inputSource.startsWith('DEVICE')) {
+      await recordProductionVoiceHistorySafely({
+        sessionId: body.conversationId ?? randomUUID(),
+        deviceId: body.deviceId,
+        inputSource: body.inputSource as 'DEVICE_TEXT' | 'DEVICE_AUDIO',
+        inputText: body.text?.trim() ?? '',
+        replyText: '',
+        route: 'UNRESOLVED',
+        result: 'FAILED',
+        intent: null,
+        safetyDecision: null,
+        commandStatus: null,
+        latencyMs: null,
+        costCny: null,
+        error: safeVoiceHistoryError(error),
+      });
+    }
+    throw error;
+  }
+}
+
+const initialRevisions = new WeakMap<VoicePipelineRequest, number>();
+async function runAdmittedPipeline(body: VoicePipelineRequest): Promise<VoicePipelineResponse> {
+  if (body.testMode === 'ASR_ONLY') return executeVoicePipeline(body, []);
+  return voiceConversations.run(
+    { deviceId: body.deviceId, channel: 'pipeline' },
+    { conversationId: body.conversationId, resumeLatest: body.inputSource.startsWith('DEVICE') },
+    async (context) => {
+      body.conversationId = context.id;
+      const response = await executeVoicePipeline(body, context.messages);
+      response.conversationId = context.id;
+      const text = removeWakeWord(response.transcript ?? '') || (response.route === 'ONLINE_RULE' ? response.transcript ?? '' : '');
+      const ciPromptEcho = body.inputSource === 'DEVICE_AUDIO' && body.ciWakeAcknowledged && text === '我在';
+      const resolved = response.route !== 'UNRESOLVED' && !response.stages.some((stage) => stage.key === 'LLM' && stage.status === 'FAILED');
+      return {
+        value: response,
+        turn: resolved && text && !ciPromptEcho ? {
+          text,
+          aiResult: response.aiResult,
+          replyText: response.replyText,
+          executionStatus: response.commandRecord?.status ?? 'NOT_EXECUTED',
+        } : undefined,
+        end: isConversationEnd(text),
+      };
+    },
+  );
+}
+
+function productionRecordFromPipeline(
+  body: VoicePipelineRequest,
+  response: VoicePipelineResponse,
+): ProductionVoiceHistoryInput {
+  const failed = response.stages.find((stage) => stage.status === 'FAILED' || stage.status === 'NOT_CONFIGURED');
+  return {
+    sessionId: response.conversationId ?? response.sessionId,
+    deviceId: body.deviceId,
+    inputSource: body.inputSource as 'DEVICE_TEXT' | 'DEVICE_AUDIO',
+    inputText: response.transcript ?? body.text?.trim() ?? '',
+    replyText: response.replyText,
+    route: response.route,
+    result: failed ? 'FAILED' : 'COMPLETED',
+    intent: response.aiResult.intent ?? null,
+    safetyDecision: response.safetyResult.decision,
+    commandStatus: response.commandRecord?.status ?? null,
+    latencyMs: response.totalLatencyMs,
+    costCny: response.cost.totalCny,
+    error: failed?.error?.slice(0, 500) ?? (failed ? `${failed.key}_${failed.status}` : null),
+  };
+}
+
+async function recordProductionVoiceHistorySafely(input: ProductionVoiceHistoryInput): Promise<void> {
+  try {
+    await appendProductionVoiceHistory(input);
+  } catch (error) {
+    console.error('[production-voice-history] failed to persist device turn', safeVoiceHistoryError(error));
+  }
+}
+
+function safeVoiceHistoryError(error: unknown): string {
+  if (error instanceof ApiError) return error.code.slice(0, 500);
+  return error instanceof Error ? error.name.slice(0, 500) : 'INTERNAL_ERROR';
+}
+
+async function executeVoicePipeline(body: VoicePipelineRequest, history: ConversationMessage[]): Promise<VoicePipelineResponse> {
   const started = performance.now();
   const sessionId = randomUUID();
   const stages: VoicePipelineStage[] = [];
@@ -101,7 +217,7 @@ export async function runVoicePipeline(
       label: "CI1302离线识别",
       status: "SKIPPED",
       source: "CI1302",
-      result: "CI1302离线命令未命中，本次请求进入在线ASR",
+      result: body.ciWakeAcknowledged ? "CI1302已唤醒；本次为在线回退音频" : "本次为在线音频请求",
       detail: {
         handledOnDevice: true,
         reason: "DEVICE_AUDIO is the online fallback upload",
@@ -206,12 +322,17 @@ export async function runVoicePipeline(
   }
 
   const wakeResult = resolveWakeWord(transcript || "", body.inputSource);
+  if (body.ciWakeAcknowledged && body.inputSource === 'DEVICE_AUDIO') {
+    wakeResult.detected = true;
+    wakeResult.source = 'CI1302_WAKE_EVENT';
+  }
   addStage(stages, {
     key: "WAKE_WORD",
     label: "唤醒词",
     status: wakeResult.detected ? "MATCHED" : "COMPLETED",
     source: wakeResult.source,
-    result: wakeResult.detected ? "已识别“小东小东”" : "已进入测试会话",
+    result: body.ciWakeAcknowledged && body.inputSource === 'DEVICE_AUDIO'
+      ? 'CI1302 已确认唤醒' : wakeResult.detected ? '已识别“小东小东”' : '已进入测试会话',
     detail: {
       inputText: transcript,
       detected: wakeResult.detected,
@@ -222,7 +343,7 @@ export async function runVoicePipeline(
     error: null,
   });
 
-  if (body.requireWakeWord && !wakeResult.detected) {
+  if (body.requireWakeWord && !wakeResult.detected && !history.length) {
     const safetyResult = noActionSafety('未检测到唤醒词“小东小东”');
     addStage(stages, {
       key: "SAFETY",
@@ -254,7 +375,24 @@ export async function runVoicePipeline(
   }
 
   const normalizedText = removeWakeWord(transcript || "");
+  if (body.inputSource === 'DEVICE_AUDIO' && body.ciWakeAcknowledged && normalizedText === '我在') {
+    const wakeStage = stages.find((stage) => stage.key === 'WAKE_WORD');
+    if (wakeStage) {
+      wakeStage.status = 'SKIPPED';
+      wakeStage.source = 'CI1302_PROMPT';
+      wakeStage.result = '忽略 CI1302 自身播报，不生成第二次回答';
+    }
+    return finishPipeline({ sessionId, body, transcript, stages, route: 'ONLINE_RULE',
+      aiResult: chat(''), deviceState: await getDeviceState(body.deviceId), started,
+      cost: buildCost(asrCost, 0, 0, inputTokens, outputTokens, isEstimated) });
+  }
   if (wakeResult.detected && !normalizedText) {
+    if (body.ciWakeAcknowledged) {
+      return finishPipeline({ sessionId, body, transcript, stages, route: 'ONLINE_RULE', aiResult: chat(''), deviceState: await getDeviceState(body.deviceId), started, cost: buildCost(asrCost, 0, 0, inputTokens, outputTokens, isEstimated) });
+    }
+    if (body.inputSource !== 'DEVICE_AUDIO') {
+      return finishPipeline({ sessionId, body, transcript, stages, route: 'ONLINE_RULE', aiResult: chat('我在'), deviceState: await getDeviceState(body.deviceId), started, cost: buildCost(asrCost, 0, 0, inputTokens, outputTokens, isEstimated) });
+    }
     const safetyResult = noActionSafety("仅识别到唤醒词，等待用户后续指令");
     addStage(stages, {
       key: "SAFETY",
@@ -295,6 +433,17 @@ export async function runVoicePipeline(
       ttsAudioPath: null,
     });
   }
+  const proactiveResponse = body.inputSource === 'DEVICE_AUDIO'
+    ? takeProactiveConfirmation(body.deviceId, normalizedText) : null;
+  const proactiveAnswer = proactiveResponse?.declined ? chat('好的，不开启。') :
+    proactiveResponse?.intent ? control(proactiveResponse.intent, '好的，正在处理。') : null;
+  if (proactiveAnswer) {
+    return finishPipeline({
+      sessionId, body, transcript, stages, route: 'ONLINE_RULE', aiResult: proactiveAnswer,
+      deviceState: await getDeviceState(body.deviceId), started,
+      cost: buildCost(asrCost, 0, 0, inputTokens, outputTokens, isEstimated),
+    });
+  }
   const offlineMatchedResult =
     body.simulateOffline === "MISS" || deviceOfflineHandled
       ? null
@@ -324,7 +473,7 @@ export async function runVoicePipeline(
       costCny: 0,
       error: null,
     });
-    addSkippedOnlineStages(stages, "CI1302离线语义已由C3处理");
+    addSkippedOnlineStages(stages, "测试模拟离线命中；量产固定命令由STM32本地执行");
     return finishPipeline({
       sessionId,
       body,
@@ -409,30 +558,28 @@ export async function runVoicePipeline(
     });
   }
 
-  const knowledgeQuestion = looksLikeKnowledgeQuestion(normalizedText);
-  if (knowledgeQuestion) {
-    const knowledgeStarted = performance.now();
-    const knowledge = await answerKnowledgeQuestion({
-      question: normalizedText,
-      limit: 2,
-    });
-    const knowledgeResult = chat(limitSpeak(knowledge.answer));
-    addStage(stages, {
+  const knowledgeStarted = performance.now();
+  const knowledgeModel = (await getDeviceProfile(body.deviceId))?.model;
+  const knowledge = await getVoiceKnowledge(normalizedText, history.filter((message) => message.role === 'user').map((message) => message.content), knowledgeModel);
+  addStage(stages, {
       key: "KNOWLEDGE",
       label: "企业知识库",
-      status: "MATCHED",
-      source: "RAG_KEYWORD_ROUTE",
-      result: knowledgeResult.speak,
+      status: knowledge.fastAnswer ? "MATCHED" : "COMPLETED",
+      source: knowledge.fastAnswer ? "EXACT_FAQ" : knowledge.blockedAnswer ? "KNOWLEDGE_FALLBACK" : "KNOWLEDGE_REFERENCE",
+      result: knowledge.fastAnswer || knowledge.blockedAnswer || (knowledge.hits.length ? '检索结果交给大模型结合问题回答' : '未命中知识资料，继续大模型对话'),
       detail: {
         question: normalizedText,
-        answer: knowledgeResult.speak,
+        answer: knowledge.fastAnswer ?? knowledge.blockedAnswer,
         hitCount: knowledge.hits.length,
-        usedFallback: knowledge.usedFallback,
+        hits: knowledge.hits,
+        model: knowledgeModel ?? null,
+        usedFallback: !knowledge.hits.length,
       },
       latencyMs: Math.round(performance.now() - knowledgeStarted),
       costCny: 0,
       error: null,
-    });
+  });
+  if (knowledge.fastAnswer || knowledge.blockedAnswer) {
     addStage(stages, {
       key: "LLM",
       label: "LLM 大模型",
@@ -450,7 +597,7 @@ export async function runVoicePipeline(
       transcript,
       stages,
       route: "KNOWLEDGE",
-      aiResult: knowledgeResult,
+      aiResult: chat((knowledge.fastAnswer ?? knowledge.blockedAnswer)!),
       deviceState,
       started,
       cost: buildCost(asrCost, 0, 0, inputTokens, outputTokens, isEstimated),
@@ -462,6 +609,10 @@ export async function runVoicePipeline(
     deviceState,
     body.providerId,
     body.promptId,
+    body.llmHistoryTurns === undefined ? history : body.llmHistoryTurns === 0 ? [] : history.slice(-body.llmHistoryTurns * 2),
+    knowledge.context,
+    body.llmTemperature,
+    body.llmMaxOutputTokens,
   );
   inputTokens = llmResult.usage.inputTokens;
   outputTokens = llmResult.usage.outputTokens;
@@ -479,6 +630,8 @@ export async function runVoicePipeline(
       inputTokens,
       outputTokens,
       totalTokens: llmResult.usage.totalTokens,
+      contextMessages: history.length,
+      knowledgeHitCount: knowledge.hits.length,
     },
     latencyMs: llmResult.latencyMs,
     costCny: llmCost,
@@ -590,7 +743,15 @@ async function finishPipeline(input: {
   started: number;
   cost: ReturnType<typeof buildCost>;
 }): Promise<VoicePipelineResponse> {
-  const safetyResult = applySafetyRules(input.aiResult, input.deviceState);
+  assertWorkActive();
+  // Re-check current state after ASR/LLM. A panel/offline operation supersedes
+  // an older AI decision, even when the cloud request itself succeeded.
+  if (input.body.applyToDevice && input.aiResult.resultType === 'DEVICE_CONTROL' &&
+      initialRevisions.get(input.body) !== getDeviceControlRevision(input.body.deviceId)) {
+    throw new ApiError(409, 'STALE_VOICE_COMMAND', '设备状态已变化，本次语音控制已取消，请重新操作');
+  }
+  const safetyResult = applySafetyRules(input.aiResult, await getDeviceState(input.body.deviceId));
+  if (input.body.applyToDevice && safetyResult.commands.length) assertVoiceRevision(input.body.deviceId, initialRevisions.get(input.body)!);
   addStage(input.stages, {
     key: "SAFETY",
     label: "安全校验",
@@ -609,16 +770,24 @@ async function finishPipeline(input: {
 
   let commandRecord: DeviceCommandRecord | null = null;
   let nextDeviceState = input.deviceState;
-  if (safetyResult.commands.length && input.body.applyToDevice) {
+  if (safetyResult.commands.length && input.body.applyToDevice && safetyResult.decision === 'APPROVED') {
+    assertWorkActive();
     const command = await queueDeviceCommand({
       deviceId: input.body.deviceId,
       intent: safetyResult.commands[0],
-      slots: input.aiResult.slots,
+      slots: { ...input.aiResult.slots,
+        ...(input.body.deviceControlRevision !== undefined ? { expectedControlRevision: input.body.deviceControlRevision } : {}),
+        ...voiceCommandGuard(input.body.deviceId, initialRevisions.get(input.body)!) },
       status: "QUEUED",
       safetyDecision: safetyResult.decision,
       speak: safetyResult.speak,
       completedAt: null,
     });
+    try { assertVoiceRevision(input.body.deviceId, initialRevisions.get(input.body)!); }
+    catch (error) {
+      await patchDeviceCommand(command.id, { status: 'FAILED', completedAt: new Date().toISOString() });
+      throw error;
+    }
     if (
       input.body.inputSource === "DEVICE_AUDIO" ||
       input.body.inputSource === "DEVICE_TEXT"
@@ -726,6 +895,7 @@ async function finishPipeline(input: {
     const tts = await synthesizeSpeech({
       text: replyText,
       providerId: input.body.ttsProviderId,
+      voice: input.body.ttsVoice,
       audioFormat: input.body.inputSource === "DEVICE_AUDIO" ? "wav" : undefined,
     });
     ttsAudioMimeType = tts.audioMimeType;
@@ -760,6 +930,7 @@ async function finishPipeline(input: {
 
   const response: VoicePipelineResponse = {
     sessionId: input.sessionId,
+    conversationId: input.body.conversationId,
     inputSource: input.body.inputSource,
     transcript: input.transcript,
     replyText,
@@ -782,6 +953,7 @@ async function finishPipeline(input: {
     payload: {
       billingSource: "PIPELINE_TEST",
       sessionId: input.sessionId,
+      conversationId: input.body.conversationId,
       inputSource: input.body.inputSource,
       transcript: input.transcript,
       route: input.route,
@@ -803,6 +975,7 @@ async function waitForDeviceCommandResult(
 ): Promise<DeviceCommandRecord> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    assertWorkActive();
     const command = (await listCommandsForDevice(deviceId)).find(
       (candidate) => candidate.id === commandId,
     );
@@ -834,17 +1007,15 @@ function resolveWakeWord(
 }
 
 function matchOfflineIntent(text: string): AiResult | null {
-  const normalized = text.trim();
+  const normalized = normalizeRuleText(text);
   if (!normalized) {
     return chat("我在");
   }
-  if (
-    matches(normalized, ["谢谢", "感谢", "辛苦了", "再见", "拜拜", "晚安"]) &&
-    !looksLikeProblem(normalized)
-  ) {
+  if (["谢谢", "感谢", "辛苦了"].includes(normalized)) return chat('不客气，我在。');
+  if (isConversationEnd(normalized)) {
     return chat("好的，再见。");
   }
-  if (matches(normalized, ["你是谁", "你能做什么", "有什么功能"])) {
+  if (["你是谁", "你能做什么", "有什么功能"].includes(normalized)) {
     return chat("我是 AI 浴霸助手小东，可以帮您控制浴霸并回答产品问题。");
   }
   if (looksLikeProblem(normalized)) {
@@ -853,129 +1024,16 @@ function matchOfflineIntent(text: string): AiResult | null {
   return matchDirectDeviceCommand(normalized);
 }
 
-function matchOnlineRule(text: string): AiResult | null {
-  const normalized = text.trim();
-  if (matches(normalized, ["谢谢", "感谢", "再见", "拜拜", "晚安"])) {
-    return chat("好的，再见。");
-  }
-  if (matches(normalized, ["你好", "您好", "早上好", "晚上好", "在吗"])) {
-    return chat("您好，我是 AI 浴霸助手小东，有什么可以帮您？");
-  }
-  if (looksLikeProblem(normalized)) {
-    return null;
-  }
-  return matchDirectDeviceCommand(normalized);
-}
-
-function matchDirectDeviceCommand(text: string): AiResult | null {
-  const commands: Array<{
-    intent: DeviceIntent;
-    words: string[];
-    speak: string;
-    requiresConfirm?: boolean;
-  }> = [
-    { intent: "LIGHT_OFF", words: ["关灯", "关闭照明"], speak: "已关闭照明。" },
-    { intent: "LIGHT_ON", words: ["开灯", "打开照明"], speak: "已打开照明。" },
-    {
-      intent: "VENTILATION_OFF",
-      words: ["关闭换气", "关掉换气", "关闭通风"],
-      speak: "已关闭换气。",
-    },
-    {
-      intent: "VENTILATION_ON",
-      words: ["开启换气", "打开换气", "开始换气", "通风"],
-      speak: "已打开换气。",
-    },
-    {
-      intent: "FAN_OFF",
-      words: ["关闭吹风", "关掉吹风"],
-      speak: "已关闭吹风。",
-    },
-    {
-      intent: "FAN_ON",
-      words: ["打开吹风", "开启吹风", "凉风"],
-      speak: "已打开吹风。",
-    },
-    {
-      intent: "SWING_OFF",
-      words: ["关闭摆风", "关掉摆风"],
-      speak: "已关闭摆风。",
-    },
-    {
-      intent: "SWING_ON",
-      words: ["打开摆风", "开启摆风", "扫风"],
-      speak: "已打开摆风。",
-    },
-    {
-      intent: "HEAT_WEAK_OFF",
-      words: ["关闭弱暖", "关闭取暖", "关闭暖风"],
-      speak: "已关闭暖风。",
-    },
-    {
-      intent: "HEAT_WEAK_ON",
-      words: ["打开弱暖", "开启弱暖", "开启取暖", "打开暖风", "有点冷"],
-      speak: "已打开弱暖。",
-    },
-    {
-      intent: "HEAT_STRONG_ON",
-      words: ["打开强暖", "开启强暖", "强暖"],
-      speak: "即将打开强暖。",
-      requiresConfirm: true,
-    },
-    {
-      intent: "DRY_OFF",
-      words: ["关闭干燥", "关闭除湿"],
-      speak: "已关闭干燥。",
-    },
-    {
-      intent: "DRY_ON",
-      words: ["打开干燥", "开启干燥", "除湿"],
-      speak: "已打开干燥。",
-    },
-    {
-      intent: "DEFOG_ON",
-      words: ["打开除雾", "开启除雾"],
-      speak: "已打开除雾。",
-    },
-    {
-      intent: "STANDBY",
-      words: ["全部关闭", "关闭浴霸", "浴霸关机", "待机"],
-      speak: "已进入待机。",
-    },
-  ];
-
-  if (looksLikeProblem(text)) {
-    return null;
-  }
-
-  const match = commands.find((command) =>
-    command.words.some((word) => text.includes(word)),
-  );
-  if (match) {
-    return control(match.intent, match.speak, match.requiresConfirm ?? false);
-  }
-
-  const temperatureMatch = text.match(/([3-4][0-9])\s*度/);
-  if (temperatureMatch && matches(text, ["设置", "调到", "调整", "温度"])) {
-    const temperature = Number(temperatureMatch[1]);
-    return {
-      resultType: "DEVICE_CONTROL",
-      intent: "SET_TEMP",
-      confidence: 0.96,
-      slots: { temperature },
-      requiresConfirm: false,
-      speak: `已将温度设置为 ${temperature} 度。`,
-    };
-  }
-
-  return null;
-}
 
 async function resolveByLlm(
   text: string,
   deviceState: DeviceState,
   providerId: string | undefined,
   promptId: string | undefined,
+  history: ConversationMessage[] = [],
+  knowledgeContext?: string,
+  temperature?: number,
+  maxOutputTokens?: number,
 ) {
   const [providers, prompts, defaultProvider] = await Promise.all([
     listProviders(),
@@ -1010,6 +1068,10 @@ async function resolveByLlm(
       prompt,
       inputText: text,
       deviceState,
+      history,
+      knowledgeContext,
+      temperature,
+      maxOutputTokens,
     });
     return {
       providerId: provider.id,
@@ -1272,48 +1334,6 @@ function noActionSafety(reason: string): SafetyResult {
   };
 }
 
-function looksLikeKnowledgeQuestion(text: string): boolean {
-  return matches(text, [
-    "怎么用",
-    "如何使用",
-    "说明书",
-    "安装",
-    "故障",
-    "报错",
-    "维修",
-    "售后",
-    "保修",
-    "清洁",
-    "保养",
-    "型号",
-    "不能工作",
-    "不工作",
-    "为什么",
-  ]);
-}
-
-function looksLikeProblem(text: string): boolean {
-  return matches(text, [
-    "问题",
-    "故障",
-    "出问题",
-    "坏了",
-    "为什么",
-    "怎么回事",
-    "能不能",
-    "是否",
-    "好像",
-    "不工作",
-    "不能用",
-    "失灵",
-    "反馈",
-    "咨询",
-  ]);
-}
-
-function matches(text: string, words: string[]): boolean {
-  return words.some((word) => text.includes(word));
-}
 
 function removeWakeWord(text: string): string {
   return normalizeWakeText(text)
@@ -1324,11 +1344,6 @@ function removeWakeWord(text: string): string {
 
 function normalizeWakeText(text: string): string {
   return text.replace(/[，,。.!！?？、\s]+/g, "");
-}
-
-function limitSpeak(text: string): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  return normalized.length > 50 ? `${normalized.slice(0, 48)}...` : normalized;
 }
 
 function isAudioSource(source: VoicePipelineRequest["inputSource"]): boolean {

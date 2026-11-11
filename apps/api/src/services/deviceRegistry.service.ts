@@ -6,6 +6,8 @@ import { DEFAULT_DEVICE_ID, appendDeviceCommand, appendDeviceEvent, getDevicePro
 import { getCurrentDeviceState, patchCurrentDeviceState, executeDeviceCommand } from './device.service.js';
 import { appendLog } from './log.service.js';
 import { assertDeviceIntentSupported } from './hardwareConfig.service.js';
+import { assertWorkActive } from '../runtime/workload.js';
+import { isCommandCurrent } from '../runtime/commandGuard.js';
 
 export const DeviceEventRequestSchema = z.object({
   deviceId: z.string().min(1).default(DEFAULT_DEVICE_ID),
@@ -30,8 +32,7 @@ export async function saveDevices(devices: DeviceProfile[]): Promise<DeviceProfi
 }
 
 export async function getDeviceState(deviceId: string): Promise<DeviceState> {
-  void deviceId;
-  return getCurrentDeviceState();
+  return getCurrentDeviceState(deviceId);
 }
 
 export async function recordDeviceEvent(requestBody: unknown): Promise<DeviceEvent> {
@@ -44,7 +45,7 @@ export async function recordDeviceEvent(requestBody: unknown): Promise<DeviceEve
   });
 
   if (body.type === 'STATE_REPORT' || body.type === 'OCCUPANCY' || body.type === 'RADAR' || body.type === 'FAULT') {
-    patchCurrentDeviceState(extractStatePatch(body.payload));
+    patchCurrentDeviceState(extractStatePatch(body.payload), body.deviceId);
   }
 
   return event;
@@ -56,7 +57,9 @@ export async function executeCommandForDevice(
 ): Promise<{ state: DeviceState; command: DeviceCommandRecord }> {
   const device = await getDevice(deviceId);
   await assertDeviceIntentSupported(device.model, command.intent);
-  const state = executeDeviceCommand(command.intent, command.slots);
+  assertWorkActive();
+  if (!isCommandCurrent(command)) throw new ApiError(409, 'STALE_VOICE_COMMAND', '语音命令已失效，请重新操作');
+  const state = executeDeviceCommand(command.intent, command.slots, deviceId);
   const nextCommand = await patchDeviceCommand(command.id, {
     status: 'APPLIED',
     completedAt: new Date().toISOString()
@@ -81,6 +84,7 @@ export async function executeCommandForDevice(
 export async function queueDeviceCommand(command: Omit<DeviceCommandRecord, 'id' | 'createdAt'>): Promise<DeviceCommandRecord> {
   const device = await getDevice(command.deviceId);
   await assertDeviceIntentSupported(device.model, command.intent);
+  assertWorkActive();
   return appendDeviceCommand(command);
 }
 

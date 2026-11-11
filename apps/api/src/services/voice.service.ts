@@ -5,6 +5,8 @@ import { callModel } from '../modelGateway.js';
 import { applySafetyRules } from '../rules.js';
 import { appendLog } from './log.service.js';
 import { resolveLowCostIntent } from './lowCostIntent.service.js';
+import { getVoiceKnowledge } from './knowledge.service.js';
+import { getDeviceProfile } from '../repositories/system.repository.js';
 import {
   executeCommandForDevice,
   getDeviceState,
@@ -12,11 +14,20 @@ import {
 } from './deviceRegistry.service.js';
 import { findPrompt, listPrompts } from './prompt.service.js';
 import { findProvider, listProviders } from './provider.service.js';
+import { runVoiceWork, assertWorkActive } from '../runtime/workload.js';
+import { getDeviceControlRevision } from '../deviceSimulator.js';
+import { ApiError } from '../http/apiError.js';
+import { voiceCommandGuard } from '../runtime/commandGuard.js';
 
 export async function handleVoiceTurn(requestBody: unknown): Promise<VoiceTurnResponse> {
   const body = VoiceTurnRequestSchema.parse(requestBody);
+  const revision = getDeviceControlRevision(body.deviceId);
+  return runVoiceWork(body.deviceId, () => executeVoiceTurn(body, revision));
+}
+async function executeVoiceTurn(body: ReturnType<typeof VoiceTurnRequestSchema.parse>, revision: number): Promise<VoiceTurnResponse> {
   const deviceState = await getDeviceState(body.deviceId);
-  const lowCostResult = await resolveLowCostIntent(body.text);
+  const model = (await getDeviceProfile(body.deviceId))?.model;
+  const lowCostResult = await resolveLowCostIntent(body.text, model);
   let source: 'rule' | 'knowledge' | 'llm';
   let providerId: string | null = null;
   let promptId: string | null = null;
@@ -41,7 +52,8 @@ export async function handleVoiceTurn(requestBody: unknown): Promise<VoiceTurnRe
       provider,
       prompt,
       inputText: body.text,
-      deviceState
+      deviceState,
+      knowledgeContext: (await getVoiceKnowledge(body.text, [], model)).context,
     });
     source = 'llm';
     providerId = provider.id;
@@ -51,7 +63,11 @@ export async function handleVoiceTurn(requestBody: unknown): Promise<VoiceTurnRe
     usage = modelOutput.usage;
   }
 
-  const safetyResult = applySafetyRules(aiResult, deviceState);
+  assertWorkActive();
+  if (body.applyToDevice && aiResult.resultType === 'DEVICE_CONTROL' && revision !== getDeviceControlRevision(body.deviceId)) {
+    throw new ApiError(409, 'STALE_VOICE_COMMAND', '设备状态已变化，本次语音控制已取消，请重新操作');
+  }
+  const safetyResult = applySafetyRules(aiResult, await getDeviceState(body.deviceId));
   let commandRecord: DeviceCommandRecord | null = null;
   let nextState = deviceState;
 
@@ -59,12 +75,13 @@ export async function handleVoiceTurn(requestBody: unknown): Promise<VoiceTurnRe
     commandRecord = await queueDeviceCommand({
       deviceId: body.deviceId,
       intent: safetyResult.commands[0],
-      slots: aiResult.slots,
+      slots: { ...aiResult.slots, ...voiceCommandGuard(body.deviceId, revision) },
       status: 'QUEUED',
       safetyDecision: safetyResult.decision,
       speak: safetyResult.speak,
       completedAt: null
     });
+    assertWorkActive();
     const result = await executeCommandForDevice(body.deviceId, commandRecord);
     commandRecord = result.command;
     nextState = result.state;

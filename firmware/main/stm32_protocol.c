@@ -85,6 +85,15 @@ bool dx_stm32_decode_status_frame(
     out_status->dry = (status & 0x40U) != 0;
     out_status->mode_active = (extended_status & 0x01U) != 0;
     out_status->network_control_enabled = (extended_status & 0x02U) != 0;
+    out_status->control_revision = frame[17];
+    if (frame[FRAME_COMMAND] == DX_STM32_CI_EVENT_COMMAND && frame[13] == 0xC1U &&
+        (frame[14] == DX_STM32_CI_EVENT_WAKE || frame[14] == DX_STM32_CI_EVENT_LOCAL_APPLIED) &&
+        (frame[15] == 1U || frame[15] == 2U || frame[15] == 3U ||
+         frame[15] == 8U || frame[15] == 9U || frame[15] == 10U || frame[15] == 11U)) {
+        out_status->ci_event_type = frame[14];
+        out_status->ci_semantic_id = frame[15];
+        out_status->ci_event_sequence = frame[16];
+    }
     return true;
 }
 

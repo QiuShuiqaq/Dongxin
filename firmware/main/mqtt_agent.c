@@ -4,10 +4,13 @@
 #include "cJSON.h"
 #include "esp_log.h"
 #include "esp_mac.h"
+#include "esp_random.h"
+#include "esp_crt_bundle.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "mqtt_client.h"
 
@@ -24,8 +27,32 @@ static const char *TAG = "MQTT_AGENT";
 static const size_t MQTT_RX_BUFFER_SIZE = 2048;
 static const size_t MQTT_COMMAND_QUEUE_DEPTH = 4;
 static esp_mqtt_client_handle_t s_client;
-static bool s_connected;
+static volatile bool s_connected;
+static volatile uint32_t s_connection_generation;
 static unsigned long s_message_sequence;
+static uint32_t s_message_boot_nonce;
+static portMUX_TYPE s_message_id_lock = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t s_ci_boot_nonce;
+static uint32_t s_ci_boot_nonce_extra;
+static uint32_t s_ci_event_counter;
+static bool s_ci_local_pending;
+static dx_stm32_status_t s_ci_local_pending_status;
+static char s_ci_local_pending_id[48];
+static uint32_t s_ci_local_pending_counter;
+static volatile bool s_downlinks_subscribed;
+static bool s_connection_setup_running;
+static volatile bool s_subscription_requested;
+static volatile int s_subscription_ids[4];
+static volatile uint8_t s_subscription_ack_mask;
+static TickType_t s_subscription_requested_at;
+static int s_ci_inflight_message_id = -1;
+static uint32_t s_ci_inflight_counter;
+static TickType_t s_ci_inflight_started_at;
+static bool s_ci_enqueuing;
+static int s_ci_early_ack_id = -1;
+static portMUX_TYPE s_connection_setup_lock = portMUX_INITIALIZER_UNLOCKED;
+static portMUX_TYPE s_ci_pending_lock = portMUX_INITIALIZER_UNLOCKED;
+static SemaphoreHandle_t s_ci_publish_mutex;
 static char s_command_topic[160];
 static char s_voice_test_topic[160];
 static char s_audio_test_topic[160];
@@ -35,6 +62,7 @@ static QueueHandle_t s_command_queue;
 
 typedef struct {
     size_t length;
+    uint32_t connection_generation;
     char payload[2048];
 } dx_mqtt_command_message_t;
 
@@ -45,6 +73,7 @@ static esp_err_t publish_envelope(
     int qos,
     bool retain
 );
+static esp_err_t enqueue_envelope(const char *message_type, cJSON *data, int *message_id);
 static void publish_registration(void);
 static void publish_heartbeat(void);
 static void publish_online_status(void);
@@ -53,6 +82,44 @@ static bool handle_voice_test_control(const cJSON *data);
 static bool handle_audio_test_control(const cJSON *data);
 static bool handle_board_test_control(const cJSON *data);
 static void command_dispatch_task(void *arg);
+static esp_err_t publish_ci_event_with_id(const dx_stm32_status_t *status, const char *event_id, int *message_id);
+static esp_err_t enqueue_local_ci_event(const dx_stm32_status_t *status, const char *event_id, uint32_t counter);
+static bool flush_pending_ci_event(void);
+static void complete_connection_setup(void);
+
+static void store_ci_pending(const dx_stm32_status_t *status, const char *event_id, uint32_t counter)
+{
+    portENTER_CRITICAL(&s_ci_pending_lock);
+    if (!s_ci_local_pending || counter >= s_ci_local_pending_counter) {
+        s_ci_local_pending_status = *status;
+        strncpy(s_ci_local_pending_id, event_id, sizeof(s_ci_local_pending_id) - 1);
+        s_ci_local_pending_id[sizeof(s_ci_local_pending_id) - 1] = '\0';
+        s_ci_local_pending_counter = counter;
+        s_ci_local_pending = true;
+    }
+    portEXIT_CRITICAL(&s_ci_pending_lock);
+}
+
+static bool snapshot_ci_pending(dx_stm32_status_t *status, char event_id[48], uint32_t *counter)
+{
+    portENTER_CRITICAL(&s_ci_pending_lock);
+    const bool pending = s_ci_local_pending;
+    if (pending) {
+        *status = s_ci_local_pending_status;
+        memcpy(event_id, s_ci_local_pending_id, sizeof(s_ci_local_pending_id));
+        *counter = s_ci_local_pending_counter;
+    }
+    portEXIT_CRITICAL(&s_ci_pending_lock);
+    return pending;
+}
+
+static bool ci_event_reconciliation_complete(void)
+{
+    portENTER_CRITICAL(&s_ci_pending_lock);
+    const bool complete = !s_ci_local_pending;
+    portEXIT_CRITICAL(&s_ci_pending_lock);
+    return complete;
+}
 
 bool mqtt_agent_is_connected(void)
 {
@@ -71,6 +138,178 @@ esp_err_t mqtt_agent_report_state(void)
     cJSON_AddItemToObject(data, "state", state);
     cJSON_AddStringToObject(data, "reportedAt", "device-clock-unsynced");
     return publish_envelope("state", data, 1, true);
+}
+
+esp_err_t mqtt_agent_report_ci_event(const dx_stm32_status_t *status)
+{
+    if (status == NULL || status->ci_event_type == DX_STM32_CI_EVENT_NONE) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_ci_boot_nonce == 0U && s_ci_boot_nonce_extra == 0U) {
+        s_ci_boot_nonce = esp_random();
+        s_ci_boot_nonce_extra = esp_random();
+        if (s_ci_boot_nonce == 0U && s_ci_boot_nonce_extra == 0U) s_ci_boot_nonce = 1U;
+    }
+    char event_id[48];
+    snprintf(event_id, sizeof(event_id), "c3-%08lx%08lx-%08lx",
+             (unsigned long)s_ci_boot_nonce, (unsigned long)s_ci_boot_nonce_extra,
+             (unsigned long)++s_ci_event_counter);
+    const uint32_t event_counter = s_ci_event_counter;
+    const bool local = status->ci_event_type == DX_STM32_CI_EVENT_LOCAL_APPLIED;
+    if (local) store_ci_pending(status, event_id, event_counter);
+    if (!s_connected || s_ci_publish_mutex == NULL) {
+        return ESP_OK;
+    }
+    if (xSemaphoreTake(s_ci_publish_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    esp_err_t result = ESP_ERR_INVALID_STATE;
+    if (s_connected) {
+        portENTER_CRITICAL(&s_ci_pending_lock);
+        const bool inflight = s_ci_inflight_message_id >= 0;
+        portEXIT_CRITICAL(&s_ci_pending_lock);
+        if (local && inflight) {
+            result = ESP_OK;
+        } else {
+            int message_id = -1;
+            result = local ? enqueue_local_ci_event(status, event_id, event_counter)
+                           : publish_ci_event_with_id(status, event_id, &message_id);
+        }
+    }
+    xSemaphoreGive(s_ci_publish_mutex);
+    return result;
+}
+
+static esp_err_t publish_ci_event_with_id(const dx_stm32_status_t *status, const char *event_id, int *message_id)
+{
+    cJSON *data = cJSON_CreateObject();
+    cJSON *payload = cJSON_CreateObject();
+    if (data == NULL || payload == NULL) {
+        cJSON_Delete(data);
+        cJSON_Delete(payload);
+        return ESP_ERR_NO_MEM;
+    }
+    const bool local = status->ci_event_type == DX_STM32_CI_EVENT_LOCAL_APPLIED;
+    cJSON_AddStringToObject(data, "eventId", event_id);
+    cJSON_AddStringToObject(data, "eventType", local ? "LOCAL_CONTROL" : "CI_WAKE");
+    cJSON_AddStringToObject(payload, "source", "CI1302");
+    cJSON_AddNumberToObject(payload, "semanticId", status->ci_semantic_id);
+    cJSON_AddNumberToObject(payload, "eventSequence", status->ci_event_sequence);
+    if (local) {
+        const char *intent = NULL;
+        switch (status->ci_semantic_id) {
+            case 2U: intent = "LIGHT_ON"; break;
+            case 3U: intent = "LIGHT_OFF"; break;
+            case 8U: intent = "VENTILATION_ON"; break;
+            case 9U: intent = "VENTILATION_OFF"; break;
+            case 10U: intent = "FAN_ON"; break;
+            case 11U: intent = "FAN_OFF"; break;
+            default: break;
+        }
+        if (intent != NULL) cJSON_AddStringToObject(payload, "intent", intent);
+        cJSON *state = cJSON_CreateObject();
+        if (state == NULL) {
+            cJSON_Delete(data);
+            cJSON_Delete(payload);
+            return ESP_ERR_NO_MEM;
+        }
+        cJSON_AddStringToObject(state, "light", status->light ? "on" : "off");
+        cJSON_AddStringToObject(state, "fan", status->fan ? "on" : "off");
+        cJSON_AddStringToObject(state, "ventilation", status->ventilation ? "on" : "off");
+        cJSON_AddStringToObject(state, "heater", status->heater_strong ? "strong" :
+                                (status->heater_weak ? "weak" : "off"));
+        cJSON_AddStringToObject(state, "swing", status->swing ? "on" : "off");
+        cJSON_AddStringToObject(state, "dry", status->dry ? "on" : "off");
+        cJSON_AddItemToObject(payload, "state", state);
+    }
+    cJSON_AddItemToObject(data, "payload", payload);
+    return enqueue_envelope("event", data, message_id);
+}
+
+static esp_err_t enqueue_local_ci_event(const dx_stm32_status_t *status, const char *event_id, uint32_t counter)
+{
+    const uint32_t generation = s_connection_generation;
+    portENTER_CRITICAL(&s_ci_pending_lock);
+    s_ci_enqueuing = true;
+    s_ci_early_ack_id = -1;
+    portEXIT_CRITICAL(&s_ci_pending_lock);
+
+    int message_id = -1;
+    const esp_err_t result = publish_ci_event_with_id(status, event_id, &message_id);
+    portENTER_CRITICAL(&s_ci_pending_lock);
+    s_ci_enqueuing = false;
+    if (result == ESP_OK && s_connected && generation == s_connection_generation) {
+        if (s_ci_early_ack_id == message_id) {
+            if (s_ci_local_pending && s_ci_local_pending_counter <= counter) {
+                s_ci_local_pending = false;
+                s_ci_local_pending_id[0] = '\0';
+            }
+        } else {
+            s_ci_inflight_message_id = message_id;
+            s_ci_inflight_counter = counter;
+            s_ci_inflight_started_at = xTaskGetTickCount();
+        }
+    }
+    s_ci_early_ack_id = -1;
+    portEXIT_CRITICAL(&s_ci_pending_lock);
+    return result;
+}
+
+static bool flush_pending_ci_event(void)
+{
+    if (s_ci_publish_mutex == NULL ||
+        xSemaphoreTake(s_ci_publish_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) return false;
+    dx_stm32_status_t pending;
+    char pending_id[48];
+    uint32_t pending_counter = 0U;
+    const bool has_pending = snapshot_ci_pending(&pending, pending_id, &pending_counter);
+    bool delivered = !has_pending;
+    if (has_pending && s_connected) {
+        portENTER_CRITICAL(&s_ci_pending_lock);
+        if (s_ci_inflight_message_id >= 0 &&
+            (TickType_t)(xTaskGetTickCount() - s_ci_inflight_started_at) >= pdMS_TO_TICKS(15000)) {
+            s_ci_inflight_message_id = -1;
+        }
+        const bool inflight = s_ci_inflight_message_id >= 0;
+        portEXIT_CRITICAL(&s_ci_pending_lock);
+        if (!inflight) {
+            (void)enqueue_local_ci_event(&pending, pending_id, pending_counter);
+        }
+    }
+    xSemaphoreGive(s_ci_publish_mutex);
+    return delivered;
+}
+
+static void complete_connection_setup(void)
+{
+    portENTER_CRITICAL(&s_connection_setup_lock);
+    if (!s_connected || s_downlinks_subscribed || s_connection_setup_running) {
+        portEXIT_CRITICAL(&s_connection_setup_lock);
+        return;
+    }
+    s_connection_setup_running = true;
+    const uint32_t generation = s_connection_generation;
+    portEXIT_CRITICAL(&s_connection_setup_lock);
+
+    if (!flush_pending_ci_event() || !s_connected || generation != s_connection_generation) goto done;
+    if (s_subscription_requested &&
+        (TickType_t)(xTaskGetTickCount() - s_subscription_requested_at) < pdMS_TO_TICKS(10000)) goto done;
+    s_subscription_requested = true;
+    s_subscription_requested_at = xTaskGetTickCount();
+    s_subscription_ack_mask = 0;
+    for (size_t i = 0; i < 4; i++) s_subscription_ids[i] = -1;
+    const char *topics[4] = {s_command_topic, s_voice_test_topic, s_audio_test_topic, s_board_test_topic};
+    bool requested = true;
+    for (size_t i = 0; i < 4; i++) {
+        const int id = esp_mqtt_client_subscribe(s_client, topics[i], 1);
+        s_subscription_ids[i] = id;
+        if (id < 0) requested = false;
+    }
+    if (!requested) ESP_LOGW(TAG, "Downlink subscription request failed; retrying");
+done:
+    portENTER_CRITICAL(&s_connection_setup_lock);
+    s_connection_setup_running = false;
+    portEXIT_CRITICAL(&s_connection_setup_lock);
 }
 
 esp_err_t mqtt_agent_report_stm32_link(
@@ -193,20 +432,49 @@ static void mqtt_event_handler(
     switch ((esp_mqtt_event_id_t)event_id) {
         case MQTT_EVENT_CONNECTED:
             s_connected = true;
+            s_connection_generation++;
+            s_downlinks_subscribed = false;
+            s_subscription_requested = false;
+            s_subscription_ack_mask = 0;
             device_state_set_online(true);
-            esp_mqtt_client_subscribe(s_client, s_command_topic, 1);
-            esp_mqtt_client_subscribe(s_client, s_voice_test_topic, 1);
-            esp_mqtt_client_subscribe(s_client, s_audio_test_topic, 1);
-            esp_mqtt_client_subscribe(s_client, s_board_test_topic, 1);
-            ESP_LOGI(TAG, "Connected, subscribed to command, voice, audio and board test topics");
-            publish_registration();
-            publish_online_status();
-            mqtt_agent_report_state();
             break;
         case MQTT_EVENT_DISCONNECTED:
             s_connected = false;
+            s_downlinks_subscribed = false;
+            s_subscription_requested = false;
+            if (s_command_queue != NULL) xQueueReset(s_command_queue);
+            portENTER_CRITICAL(&s_ci_pending_lock);
+            s_ci_inflight_message_id = -1;
+            portEXIT_CRITICAL(&s_ci_pending_lock);
             device_state_set_online(false);
             ESP_LOGW(TAG, "Disconnected; ESP-MQTT will reconnect automatically");
+            break;
+        case MQTT_EVENT_PUBLISHED:
+            portENTER_CRITICAL(&s_ci_pending_lock);
+            if (event->msg_id == s_ci_inflight_message_id) {
+                const uint32_t acknowledged = s_ci_inflight_counter;
+                if (s_ci_local_pending && s_ci_local_pending_counter <= acknowledged) {
+                    s_ci_local_pending = false;
+                    s_ci_local_pending_id[0] = '\0';
+                }
+                s_ci_inflight_message_id = -1;
+            } else if (s_ci_enqueuing && s_ci_inflight_message_id < 0) {
+                s_ci_early_ack_id = event->msg_id;
+            }
+            portEXIT_CRITICAL(&s_ci_pending_lock);
+            break;
+        case MQTT_EVENT_SUBSCRIBED:
+            if (!s_connected || !s_subscription_requested || s_downlinks_subscribed) break;
+            for (size_t i = 0; i < 4; i++) {
+                if (event->msg_id == s_subscription_ids[i]) s_subscription_ack_mask |= (uint8_t)(1U << i);
+            }
+            if (s_subscription_ack_mask == 0x0FU) {
+                s_downlinks_subscribed = true;
+                ESP_LOGI(TAG, "Connected, subscribed to command, voice, audio and board test topics");
+                publish_registration();
+                publish_online_status();
+                mqtt_agent_report_state();
+            }
             break;
         case MQTT_EVENT_DATA:
             if (event->total_data_len <= 0 ||
@@ -228,6 +496,7 @@ static void mqtt_event_handler(
                 s_rx_buffer[event->total_data_len] = '\0';
                 dx_mqtt_command_message_t message = {
                     .length = (size_t)event->total_data_len,
+                    .connection_generation = s_connection_generation,
                 };
                 memcpy(message.payload, s_rx_buffer, message.length + 1);
                 if (s_command_queue == NULL ||
@@ -252,6 +521,10 @@ static void command_dispatch_task(void *arg)
         if (xQueueReceive(s_command_queue, &message, portMAX_DELAY) != pdTRUE) {
             continue;
         }
+        while (!s_connected || !s_downlinks_subscribed || !ci_event_reconciliation_complete()) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+        if (message.connection_generation != s_connection_generation) continue;
         handle_command_payload(message.payload, message.length);
     }
 }
@@ -268,6 +541,9 @@ static void handle_command_payload(const char *payload, size_t payload_length)
     const cJSON *actions = data == NULL
         ? NULL
         : cJSON_GetObjectItemCaseSensitive(data, "actions");
+    const cJSON *expected_revision = data == NULL
+        ? NULL
+        : cJSON_GetObjectItemCaseSensitive(data, "expectedControlRevision");
     if (handle_voice_test_control(data) ||
         handle_audio_test_control(data) ||
         handle_board_test_control(data)) {
@@ -282,11 +558,16 @@ static void handle_command_payload(const char *payload, size_t payload_length)
     }
 
     dx_device_command_result_t result;
-    esp_err_t err = device_command_execute_json(
-        command_id->valuestring,
-        actions,
-        &result
-    );
+    esp_err_t err = ESP_OK;
+    if (device_command_is_fresh(data, &result)) {
+        err = device_command_execute_json(
+            command_id->valuestring,
+            actions,
+            cJSON_IsNumber(expected_revision) && expected_revision->valueint >= 0 &&
+                expected_revision->valueint <= 255 ? expected_revision->valueint : -1,
+            &result
+        );
+    }
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Command parse failed: %s", esp_err_to_name(err));
         cJSON_Delete(root);
@@ -337,6 +618,8 @@ static bool handle_voice_test_control(const cJSON *data)
     const cJSON *action = cJSON_GetObjectItemCaseSensitive(data, "action");
     const cJSON *session_id = cJSON_GetObjectItemCaseSensitive(data, "testSessionId");
     const cJSON *mode = cJSON_GetObjectItemCaseSensitive(data, "mode");
+    const cJSON *continuous = cJSON_GetObjectItemCaseSensitive(data, "continuous");
+    const cJSON *settings = cJSON_GetObjectItemCaseSensitive(data, "settings");
     if (!cJSON_IsString(action) || action->valuestring == NULL ||
         !cJSON_IsString(session_id) || session_id->valuestring == NULL) {
         ESP_LOGE(TAG, "Voice test control payload is invalid");
@@ -353,7 +636,18 @@ static bool handle_voice_test_control(const cJSON *data)
         err = voice_engine_start_test(
             session_id->valuestring,
             asr_only,
-            ci_wake_online_fallback
+            ci_wake_online_fallback,
+            cJSON_IsTrue(continuous),
+            cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(settings, "endpointSilenceMs"))
+                ? cJSON_GetObjectItemCaseSensitive(settings, "endpointSilenceMs")->valueint : 800,
+            cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(settings, "idleTimeoutMs"))
+                ? cJSON_GetObjectItemCaseSensitive(settings, "idleTimeoutMs")->valueint : 30000,
+            cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(settings, "maxUtteranceSeconds"))
+                ? cJSON_GetObjectItemCaseSensitive(settings, "maxUtteranceSeconds")->valueint : 12,
+            cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(settings, "voiceThreshold"))
+                ? cJSON_GetObjectItemCaseSensitive(settings, "voiceThreshold")->valueint : 350,
+            cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(settings, "noiseMultiplier"))
+                ? (int)(cJSON_GetObjectItemCaseSensitive(settings, "noiseMultiplier")->valuedouble * 10) : 30
         );
     } else if (strcmp(action->valuestring, "stop") == 0) {
         err = voice_engine_stop_test(session_id->valuestring);
@@ -383,6 +677,7 @@ static bool handle_audio_test_control(const cJSON *data)
     const cJSON *test_id = cJSON_GetObjectItemCaseSensitive(data, "testId");
     const cJSON *audio_path = cJSON_GetObjectItemCaseSensitive(data, "audioPath");
     const cJSON *volume = cJSON_GetObjectItemCaseSensitive(data, "volumePercent");
+    const cJSON *listen_after_playback = cJSON_GetObjectItemCaseSensitive(data, "listenAfterPlayback");
     if (!cJSON_IsString(action) || action->valuestring == NULL ||
         !cJSON_IsString(test_id) || test_id->valuestring == NULL) {
         ESP_LOGE(TAG, "Audio test control payload is invalid");
@@ -403,7 +698,8 @@ static bool handle_audio_test_control(const cJSON *data)
             err = voice_engine_start_audio_test(
                 test_id->valuestring,
                 audio_path->valuestring,
-                volume_percent
+                volume_percent,
+                cJSON_IsTrue(listen_after_playback)
             );
         }
     } else if (strcmp(action->valuestring, "stop") == 0) {
@@ -651,11 +947,13 @@ static cJSON *build_state(void)
     return json;
 }
 
-static esp_err_t publish_envelope(
+static esp_err_t publish_envelope_internal(
     const char *message_type,
     cJSON *data,
     int qos,
-    bool retain
+    bool retain,
+    bool enqueue,
+    int *published_id
 )
 {
     if (data == NULL) {
@@ -672,8 +970,16 @@ static esp_err_t publish_envelope(
         return ESP_ERR_NO_MEM;
     }
     char message_id[48];
-    snprintf(message_id, sizeof(message_id), "esp32-%llu-%lu",
-        (unsigned long long)(esp_timer_get_time() / 1000), ++s_message_sequence);
+    portENTER_CRITICAL(&s_message_id_lock);
+    if (s_message_boot_nonce == 0U) {
+        s_message_boot_nonce = esp_random();
+        if (s_message_boot_nonce == 0U) s_message_boot_nonce = 1U;
+    }
+    const uint32_t boot_nonce = s_message_boot_nonce;
+    const unsigned long sequence = ++s_message_sequence;
+    portEXIT_CRITICAL(&s_message_id_lock);
+    snprintf(message_id, sizeof(message_id), "esp32-%08lx-%lu",
+        (unsigned long)boot_nonce, sequence);
     char sent_at[40];
     snprintf(sent_at, sizeof(sent_at), "uptime-ms-%llu",
         (unsigned long long)(esp_timer_get_time() / 1000));
@@ -696,16 +1002,22 @@ static esp_err_t publish_envelope(
         DX_DEVICE_ID,
         message_type
     );
-    int message_id_number = esp_mqtt_client_publish(
-        s_client,
-        topic,
-        payload,
-        0,
-        qos,
-        retain ? 1 : 0
-    );
+    int message_id_number = enqueue
+        ? esp_mqtt_client_enqueue(s_client, topic, payload, 0, qos, retain ? 1 : 0, true)
+        : esp_mqtt_client_publish(s_client, topic, payload, 0, qos, retain ? 1 : 0);
     cJSON_free(payload);
+    if (published_id != NULL) *published_id = message_id_number;
     return message_id_number >= 0 ? ESP_OK : ESP_FAIL;
+}
+
+static esp_err_t publish_envelope(const char *message_type, cJSON *data, int qos, bool retain)
+{
+    return publish_envelope_internal(message_type, data, qos, retain, false, NULL);
+}
+
+static esp_err_t enqueue_envelope(const char *message_type, cJSON *data, int *message_id)
+{
+    return publish_envelope_internal(message_type, data, 1, false, true, message_id);
 }
 
 static void mqtt_task(void *arg)
@@ -746,6 +1058,7 @@ static void mqtt_task(void *arg)
         "dongxin/v1/devices/" DX_DEVICE_ID "/up/status";
     const esp_mqtt_client_config_t config = {
         .broker.address.uri = DX_MQTT_BROKER_URI,
+        .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
         .credentials.username = DX_MQTT_USERNAME,
         .credentials.client_id = DX_DEVICE_ID,
         .credentials.authentication.password = DX_MQTT_DEVICE_SECRET,
@@ -769,15 +1082,29 @@ static void mqtt_task(void *arg)
 
     TickType_t last_heartbeat = xTaskGetTickCount();
     TickType_t last_state_report = last_heartbeat;
+    uint32_t next_heartbeat_ms = 1000U + esp_random() % (DX_HEARTBEAT_INTERVAL_SECONDS * 1000U);
+    uint32_t next_state_report_ms = 1000U + esp_random() % (DX_STATE_REPORT_INTERVAL_SECONDS * 1000U);
+    uint32_t last_connection_generation = s_connection_generation;
     while (true) {
         TickType_t now = xTaskGetTickCount();
-        if (s_connected && now - last_heartbeat >= pdMS_TO_TICKS(DX_HEARTBEAT_INTERVAL_SECONDS * 1000)) {
+        if (s_connected && !s_downlinks_subscribed) complete_connection_setup();
+        else if (s_connected) (void)flush_pending_ci_event();
+        if (s_connection_generation != last_connection_generation) {
+            last_connection_generation = s_connection_generation;
+            last_heartbeat = now;
+            last_state_report = now;
+            next_heartbeat_ms = 1000U + esp_random() % (DX_HEARTBEAT_INTERVAL_SECONDS * 1000U);
+            next_state_report_ms = 1000U + esp_random() % (DX_STATE_REPORT_INTERVAL_SECONDS * 1000U);
+        }
+        if (s_connected && now - last_heartbeat >= pdMS_TO_TICKS(next_heartbeat_ms)) {
             publish_heartbeat();
             last_heartbeat = now;
+            next_heartbeat_ms = DX_HEARTBEAT_INTERVAL_SECONDS * 1000U + esp_random() % 120000U;
         }
-        if (s_connected && now - last_state_report >= pdMS_TO_TICKS(DX_STATE_REPORT_INTERVAL_SECONDS * 1000)) {
+        if (s_connected && now - last_state_report >= pdMS_TO_TICKS(next_state_report_ms)) {
             mqtt_agent_report_state();
             last_state_report = now;
+            next_state_report_ms = DX_STATE_REPORT_INTERVAL_SECONDS * 1000U + esp_random() % 300000U;
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
@@ -789,11 +1116,18 @@ void mqtt_agent_init(void)
     ESP_LOGI(TAG, "MQTT agent disabled by configuration");
     return;
 #endif
+    s_ci_publish_mutex = xSemaphoreCreateMutex();
+    if (s_ci_publish_mutex == NULL) {
+        ESP_LOGE(TAG, "Could not allocate CI event publish mutex");
+        return;
+    }
     s_command_queue = xQueueCreate(
         MQTT_COMMAND_QUEUE_DEPTH,
         sizeof(dx_mqtt_command_message_t)
     );
     if (s_command_queue == NULL) {
+        vSemaphoreDelete(s_ci_publish_mutex);
+        s_ci_publish_mutex = NULL;
         ESP_LOGE(TAG, "Could not allocate MQTT command queue");
         return;
     }
@@ -807,6 +1141,8 @@ void mqtt_agent_init(void)
         ) != pdPASS) {
         vQueueDelete(s_command_queue);
         s_command_queue = NULL;
+        vSemaphoreDelete(s_ci_publish_mutex);
+        s_ci_publish_mutex = NULL;
         ESP_LOGE(TAG, "Could not start MQTT command dispatch task");
         return;
     }

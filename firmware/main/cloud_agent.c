@@ -12,6 +12,7 @@
 
 #include "cJSON.h"
 #include "esp_http_client.h"
+#include "esp_crt_bundle.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_system.h"
@@ -100,6 +101,7 @@ static esp_err_t http_request_json(
     response[0] = '\0';
 
     esp_http_client_config_t config = {
+        .crt_bundle_attach = esp_crt_bundle_attach,
         .url = url,
         .method = method,
         .timeout_ms = DX_HTTP_TIMEOUT_MS,
@@ -114,6 +116,7 @@ static esp_err_t http_request_json(
 
     esp_http_client_set_header(client, "Content-Type", "application/json");
     esp_http_client_set_header(client, "X-Device-Id", DX_DEVICE_ID);
+    esp_http_client_set_header(client, "Authorization", "Bearer " DX_DEVICE_HTTP_SECRET);
     char request_id[32];
     snprintf(request_id, sizeof(request_id), "c3-%lu", ++s_request_sequence);
     esp_http_client_set_header(client, "X-Request-Id", request_id);
@@ -331,11 +334,17 @@ static esp_err_t execute_polled_command(const cJSON *command)
     }
 
     dx_device_command_result_t result;
-    esp_err_t err = device_command_execute_json(
-        command_id_json->valuestring,
-        actions,
-        &result
-    );
+    const cJSON *revision = cJSON_GetObjectItemCaseSensitive(command, "expectedControlRevision");
+    esp_err_t err = ESP_OK;
+    if (device_command_is_fresh(command, &result)) {
+        err = device_command_execute_json(
+            command_id_json->valuestring,
+            actions,
+            cJSON_IsNumber(revision) && revision->valueint >= 0 && revision->valueint <= 255
+                ? revision->valueint : -1,
+            &result
+        );
+    }
     if (err != ESP_OK) {
         return err;
     }

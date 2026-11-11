@@ -1,9 +1,22 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const envFilePath = fileURLToPath(new URL('../.env', import.meta.url));
 const envNamePattern = /^[A-Z_][A-Z0-9_]*$/;
+let pendingWrite: Promise<void> = Promise.resolve();
+
+function getEnvFilePath(): string {
+  return process.env.DOTENV_CONFIG_PATH
+    ? resolve(process.env.DOTENV_CONFIG_PATH)
+    : fileURLToPath(new URL('../.env', import.meta.url));
+}
+
+function serializeWrite(operation: () => Promise<void>): Promise<void> {
+  const task = pendingWrite.then(operation);
+  pendingWrite = task.catch(() => undefined);
+  return task;
+}
 
 export function isEnvConfigured(envName: string): boolean {
   assertEnvName(envName);
@@ -18,23 +31,27 @@ export async function setLocalEnvValue(envName: string, value: string): Promise<
     throw new Error('API Key 不能为空');
   }
 
-  const lines = await readEnvLines();
-  const nextLines = upsertEnvLine(lines, envName, trimmedValue);
-  await writeEnvLines(nextLines);
-  process.env[envName] = trimmedValue;
+  await serializeWrite(async () => {
+    const lines = await readEnvLines();
+    const nextLines = upsertEnvLine(lines, envName, trimmedValue);
+    await writeEnvLines(nextLines);
+    process.env[envName] = trimmedValue;
+  });
 }
 
 export async function clearLocalEnvValue(envName: string): Promise<void> {
   assertEnvName(envName);
-  const lines = await readEnvLines();
-  const nextLines = lines.filter((line) => parseEnvName(line) !== envName);
-  await writeEnvLines(nextLines);
-  delete process.env[envName];
+  await serializeWrite(async () => {
+    const lines = await readEnvLines();
+    const nextLines = lines.filter((line) => parseEnvName(line) !== envName);
+    await writeEnvLines(nextLines);
+    delete process.env[envName];
+  });
 }
 
 async function readEnvLines(): Promise<string[]> {
   try {
-    const raw = await readFile(envFilePath, 'utf8');
+    const raw = await readFile(getEnvFilePath(), 'utf8');
     return raw.replace(/\r\n/g, '\n').split('\n').filter((line, index, lines) => index < lines.length - 1 || line.length > 0);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
@@ -46,6 +63,7 @@ async function readEnvLines(): Promise<string[]> {
 }
 
 async function writeEnvLines(lines: string[]): Promise<void> {
+  const envFilePath = getEnvFilePath();
   if (!lines.length) {
     await unlink(envFilePath).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== 'ENOENT') {
@@ -55,10 +73,16 @@ async function writeEnvLines(lines: string[]): Promise<void> {
     return;
   }
 
-  const tmpPath = `${envFilePath}.tmp`;
+  const tmpPath = `${envFilePath}.${randomUUID()}.tmp`;
   await mkdir(dirname(envFilePath), { recursive: true });
-  await writeFile(tmpPath, `${lines.join('\n')}\n`, 'utf8');
-  await rename(tmpPath, envFilePath);
+  try {
+    await writeFile(tmpPath, `${lines.join('\n')}\n`, { encoding: 'utf8', mode: 0o600 });
+    await rename(tmpPath, envFilePath);
+  } finally {
+    await unlink(tmpPath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error;
+    });
+  }
 }
 
 function upsertEnvLine(lines: string[], envName: string, value: string): string[] {

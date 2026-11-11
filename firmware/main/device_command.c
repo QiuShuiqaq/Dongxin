@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "esp_log.h"
 #include "nvs.h"
@@ -9,6 +10,7 @@
 #include "device_command.h"
 #include "sample_uart_monitor.h"
 #include "uart_bridge.h"
+#include "wifi_manager.h"
 
 _Static_assert(DX_STM32_FRAME_SIZE == DX_MCU_FRAME_SIZE, "STM32 and legacy frames must both be 32 bytes");
 
@@ -28,9 +30,36 @@ static bool was_recently_executed(const char *command_id);
 static void remember_command(const char *command_id);
 static void load_last_command(void);
 
+bool device_command_is_fresh(const cJSON *command, dx_device_command_result_t *out_result)
+{
+    if (out_result == NULL) return false;
+    const cJSON *expiry = cJSON_GetObjectItemCaseSensitive(command, "expireAtUnixMs");
+    const time_t now = time(NULL);
+    const char *code = NULL;
+    if (!cJSON_IsNumber(expiry)) code = "MISSING_COMMAND_EXPIRY";
+    else if (!wifi_manager_time_is_synced() || now < (time_t)1704067200) {
+        code = "DEVICE_CLOCK_UNSYNCED";
+    }
+    else {
+        const double now_ms = (double)now * 1000.0;
+        if (!(expiry->valuedouble > now_ms && expiry->valuedouble <= now_ms + 120000.0)) {
+            code = "EXPIRED_COMMAND";
+        }
+    }
+    if (code == NULL) return true;
+    memset(out_result, 0, sizeof(*out_result));
+    out_result->status = "rejected";
+    snprintf(out_result->error_code, sizeof(out_result->error_code), "%s", code);
+    snprintf(out_result->message, sizeof(out_result->message),
+             "Remote command rejected: %s", code);
+    ESP_LOGW(TAG, "%s", out_result->message);
+    return false;
+}
+
 esp_err_t device_command_execute_json(
     const char *command_id,
     const cJSON *actions,
+    int expected_control_revision,
     dx_device_command_result_t *out_result
 )
 {
@@ -79,6 +108,7 @@ esp_err_t device_command_execute_json(
                 action.value,
                 action.target_temperature,
                 action.duration_minutes,
+                expected_control_revision,
                 frame
             );
             if (frame[0] != 0U) {
@@ -86,7 +116,11 @@ esp_err_t device_command_execute_json(
             }
             strcpy(out_result->execution_path, "STM32_UART_VERIFIED_ACK");
             if (err != ESP_OK) {
-                if (err == ESP_ERR_NOT_SUPPORTED || err == ESP_ERR_INVALID_ARG) {
+                if (err == ESP_ERR_INVALID_STATE && expected_control_revision >= 0) {
+                    out_result->status = "rejected";
+                    strcpy(out_result->error_code, "STALE_STM32_REVISION");
+                    strcpy(out_result->message, "本地控制已改变设备状态，旧在线指令已拒绝");
+                } else if (err == ESP_ERR_NOT_SUPPORTED || err == ESP_ERR_INVALID_ARG) {
                     out_result->status = "rejected";
                     snprintf(
                         out_result->error_code,

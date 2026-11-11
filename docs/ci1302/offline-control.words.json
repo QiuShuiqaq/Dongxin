@@ -1,0 +1,30 @@
+{
+  "version": "0.2",
+  "headers": ["语义标签", "命令词", "功能类型", "播报语句", "播报模式", "发送协议", "接收协议"],
+  "rows": [
+    { "id": 1, "word": "小东小东", "type": "唤醒词", "reply": "我在", "mode": "主", "action": "WAKE" },
+    { "id": 2, "word": "打开照明", "type": "命令词", "reply": "收到", "mode": "被", "action": "LIGHT_ON", "stm32Command": "01", "stm32Value": 1 },
+    { "id": 2, "word": "打开照明灯", "type": "命令词", "reply": "收到", "mode": "被", "action": "LIGHT_ON", "stm32Command": "01", "stm32Value": 1 },
+    { "id": 3, "word": "关闭照明", "type": "命令词", "reply": "收到", "mode": "被", "action": "LIGHT_OFF", "stm32Command": "01", "stm32Value": 0 },
+    { "id": 3, "word": "关闭照明灯", "type": "命令词", "reply": "收到", "mode": "被", "action": "LIGHT_OFF", "stm32Command": "01", "stm32Value": 0 },
+    { "id": 4, "word": "打开弱暖", "type": "命令词", "reply": "收到", "mode": "被", "action": "HEAT_WEAK_ON", "stm32Command": "04", "stm32Value": 1 },
+    { "id": 5, "word": "关闭弱暖", "type": "命令词", "reply": "收到", "mode": "被", "action": "HEAT_WEAK_OFF", "stm32Command": "04", "stm32Value": 0 },
+    { "id": 6, "word": "打开强暖", "type": "命令词", "reply": "收到", "mode": "被", "action": "HEAT_STRONG_ON", "stm32Command": "04", "stm32Value": 2 },
+    { "id": 7, "word": "关闭强暖", "type": "命令词", "reply": "收到", "mode": "被", "action": "HEAT_STRONG_OFF", "stm32Command": "04", "stm32Value": 0 },
+    { "id": 8, "word": "打开换气", "type": "命令词", "reply": "收到", "mode": "被", "action": "VENTILATION_ON", "stm32Command": "02", "stm32Value": 1 },
+    { "id": 9, "word": "关闭换气", "type": "命令词", "reply": "收到", "mode": "被", "action": "VENTILATION_OFF", "stm32Command": "02", "stm32Value": 0 },
+    { "id": 10, "word": "打开吹风", "type": "命令词", "reply": "收到", "mode": "被", "action": "FAN_ON", "stm32Command": "03", "stm32Value": 1 },
+    { "id": 11, "word": "关闭吹风", "type": "命令词", "reply": "收到", "mode": "被", "action": "FAN_OFF", "stm32Command": "03", "stm32Value": 0 },
+    { "id": 12, "word": "打开摆风", "type": "命令词", "reply": "收到", "mode": "被", "action": "SWING_ON", "stm32Command": "05", "stm32Value": 1 },
+    { "id": 13, "word": "关闭摆风", "type": "命令词", "reply": "收到", "mode": "被", "action": "SWING_OFF", "stm32Command": "05", "stm32Value": 0 },
+    { "id": 14, "word": "打开干燥", "type": "命令词", "reply": "收到", "mode": "被", "action": "DRY_ON", "stm32Command": "06", "stm32Value": 1 },
+    { "id": 15, "word": "关闭干燥", "type": "命令词", "reply": "收到", "mode": "被", "action": "DRY_OFF", "stm32Command": "06", "stm32Value": 0 },
+    { "id": 16, "word": "全部关闭", "type": "命令词", "reply": "收到", "mode": "被", "action": "ALL_OFF", "stm32Command": "ADAPTER", "stm32Value": null },
+    { "id": 16, "word": "关闭浴霸", "type": "命令词", "reply": "收到", "mode": "被", "action": "ALL_OFF", "stm32Command": "ADAPTER", "stm32Value": null },
+    { "id": 17, "word": "定时十分钟", "type": "命令词", "reply": "收到", "mode": "被", "action": "TIMER_10_MIN", "stm32Command": "09", "stm32Value": 10 },
+    { "id": 18, "word": "定时半小时", "type": "命令词", "reply": "收到", "mode": "被", "action": "TIMER_30_MIN", "stm32Command": "09", "stm32Value": 30 },
+    { "id": 19, "word": "定时一小时", "type": "命令词", "reply": "收到", "mode": "被", "action": "TIMER_60_MIN", "stm32Command": "09", "stm32Value": 60 },
+    { "id": 20, "word": "调高语音音量", "type": "增大音量", "reply": "音量已增大", "mode": "主", "action": "VOLUME_UP" },
+    { "id": 21, "word": "调低语音音量", "type": "减小音量", "reply": "音量已减小", "mode": "主", "action": "VOLUME_DOWN" }
+  ]
+}

@@ -21,9 +21,13 @@ export async function getDefaultProviderForService(
     listProviders(),
     getAiServiceDefaults(),
   ]);
-  const configuredId = defaults[serviceType];
+  return selectDefaultProvider(providers, defaults[serviceType], serviceType);
+}
+
+export function selectDefaultProvider(providers: ModelProvider[], configuredId: string | null, serviceType: ProviderServiceType): ModelProvider | null {
+  const available = providers.filter((provider) => provider.serviceType === serviceType && provider.enabled && (!provider.apiKeyEnv || isEnvConfigured(provider.apiKeyEnv)));
   const configured = configuredId
-    ? providers.find(
+    ? available.find(
         (provider) =>
           provider.id === configuredId &&
           provider.serviceType === serviceType &&
@@ -32,9 +36,7 @@ export async function getDefaultProviderForService(
     : null;
   return (
     configured ??
-    providers.find(
-      (provider) => provider.serviceType === serviceType && provider.enabled,
-    ) ??
+    available[0] ??
     null
   );
 }

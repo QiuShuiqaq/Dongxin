@@ -11,6 +11,7 @@
 void mqtt_agent_init(void);
 bool mqtt_agent_is_connected(void);
 esp_err_t mqtt_agent_report_state(void);
+esp_err_t mqtt_agent_report_ci_event(const dx_stm32_status_t *status);
 esp_err_t mqtt_agent_report_stm32_link(
     const char *direction,
     const char *event_type,

@@ -9,6 +9,8 @@ import { listKnowledgeDocuments } from "./knowledge.service.js";
 import { listProviders } from "./provider.service.js";
 import { getProactiveSettings } from "./proactive.service.js";
 import { getOperationsAuthStatus } from "./operationsAuth.service.js";
+import { getRuntimeStatus } from '../runtime/status.js';
+import { PILOT_DEVICE_LIMIT } from '../runtime/pilotLimits.js';
 import {
   listBoardProfiles,
   listProductProfiles,
@@ -44,7 +46,7 @@ export async function getDevelopmentConsoleData() {
         id: "P0",
         label: "执行基线",
         status: "PASSED",
-        detail: "现有STM32主控 + ESP32-C3联网语音模块；CI1302后续接入",
+        detail: "现有 STM32 主控 + ESP32-C3 联网语音；CI1302 已接线，新固件联调待验收",
       },
       {
         id: "P1",
@@ -74,13 +76,13 @@ export async function getDevelopmentConsoleData() {
         id: "P5",
         label: "合同数据集",
         status: "BLOCKED",
-        detail: "等待控制语料冻结及东信知识资料",
+        detail: "首批企业资料已整理，待补充型号说明书、售后规则及正式测试数据集",
       },
       {
         id: "P6",
         label: "CI1302离线语音",
-        status: "BLOCKED",
-        detail: "模块未到；真实唤醒率和离线命令阻塞，接口模拟不计入硬件结论",
+        status: "ACTIVE",
+        detail: "开发板已实测唤醒及照明词码；STM32/C3软件接入已编译，样机烧录及在线离线仲裁实物验收待完成",
       },
       {
         id: "P7",
@@ -92,7 +94,7 @@ export async function getDevelopmentConsoleData() {
   };
 }
 
-export async function getOperationsConsoleData() {
+export async function getOperationsConsoleData(section = 'all') {
   const [
     devices,
     commands,
@@ -127,21 +129,26 @@ export async function getOperationsConsoleData() {
     .slice(0, 100);
   const faultEvents = recentEvents.filter((event) => event.type === "FAULT");
   const terminalCommands = operationalCommands.filter(
-    (command) => command.status !== "QUEUED",
+    (command) => ["APPLIED", "REJECTED", "FAILED"].includes(command.status),
   );
   const successfulCommands = terminalCommands.filter(
     (command) => command.status === "APPLIED",
   );
   return {
-    environment: "LOCAL_PREPRODUCTION" as const,
-    devices: operationalDevices,
-    recentCommands: [...operationalCommands].reverse().slice(0, 100),
-    recentEvents,
-    alerts: faultEvents,
-    auditLogs: [...logs].reverse().slice(0, 100),
-    products,
-    knowledgeDocuments,
-    providers,
+    environment: process.env.NODE_ENV === 'production' ? 'BOUNDED_HARDWARE_PILOT' : 'LOCAL_PREPRODUCTION',
+    runtime: ['system', 'all'].includes(section) ? getRuntimeStatus() : undefined,
+    devices: section === 'all' ? operationalDevices : section === 'overview' ? operationalDevices.slice(0, 8) : [],
+    recentCommands: ['all', 'overview', 'records'].includes(section) ? [...operationalCommands].reverse().slice(0, section === 'overview' ? 10 : 100) : [],
+    recentEvents: ['all', 'overview', 'devices', 'records'].includes(section) ? recentEvents : [],
+    alerts: ['all', 'records'].includes(section) ? faultEvents : [],
+    auditLogs: ['all', 'records'].includes(section) ? [...logs].reverse().slice(0, 100) : [],
+    products: ['all', 'devices'].includes(section) ? products : [],
+    knowledgeDocuments: section === 'all' ? knowledgeDocuments : [],
+    knowledgeStats: { published: knowledgeDocuments.filter((item) => item.status === 'PUBLISHED').length,
+      review: knowledgeDocuments.filter((item) => item.status === 'IN_REVIEW').length,
+      drafts: knowledgeDocuments.filter((item) => item.status === 'DRAFT').length, archived: knowledgeDocuments.filter((item) => item.status === 'ARCHIVED').length },
+    logCount: logs.length,
+    providers: ['all', 'ai', 'overview'].includes(section) ? providers : [],
     proactiveSettings,
     mqtt: getMqttGatewayStatus(),
     metrics: {
@@ -161,12 +168,23 @@ export async function getOperationsConsoleData() {
         : 100,
     },
     productionReadiness: {
-      database: "LOCAL_JSON",
-      mqtt: "LOCAL_BROKER",
+      database: "LOCAL_JSON_NOT_PRODUCTION",
+      pilotDeviceCount: devices.filter((device) => device.protocol !== 'SIMULATOR').length,
+      pilotDeviceLimit: PILOT_DEVICE_LIMIT,
+      mqtt: getMqttGatewayStatus().brokerUrl.startsWith('mqtts://') ? 'MQTT_TLS' : 'LOCAL_BROKER',
       authentication: getOperationsAuthStatus().readiness,
-      deployment: "DEVELOPMENT_ONLY",
+      deployment: process.env.NODE_ENV === 'production' ? 'BOUNDED_PILOT_ONLY' : 'DEVELOPMENT_ONLY',
     },
   };
+}
+
+export async function getOperationsDevicePage(query: { page: number; pageSize: number; search: string; status?: string }) {
+  const search = query.search.trim().toLowerCase();
+  const devices = (await listDeviceProfiles()).filter(isOperationalDevice)
+    .filter((device) => (!query.status || device.status === query.status)
+      && (!search || [device.id, device.name, device.model, device.firmwareVersion ?? ''].join(' ').toLowerCase().includes(search)))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return { items: devices.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), total: devices.length, page: query.page };
 }
 
 function isOperationalDevice(device: {

@@ -11,11 +11,13 @@
 esp_err_t sample_uart_monitor_init(void);
 bool sample_uart_monitor_is_control_ready(void);
 int sample_uart_monitor_control_stage(void);
+int sample_uart_monitor_control_revision(void);
 esp_err_t sample_uart_monitor_execute_action(
     const char *code,
     const char *value,
     int target_temperature,
     int duration_minutes,
+    int expected_revision,
     uint8_t out_frame[DX_STM32_FRAME_SIZE]
 );
 
