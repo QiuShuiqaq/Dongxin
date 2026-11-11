@@ -5,7 +5,7 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { XMLParser } from 'fast-xml-parser';
 import { PDFParse } from 'pdf-parse';
 
-const root = resolve(process.argv[2] || '../ziliao');
+const root = resolve(process.argv[2] || '../Dongxin-research/01-client-source/ziliao');
 const output = resolve('.artifacts/knowledge-corpus');
 await mkdir(output, { recursive: true });
 const parser = new XMLParser({ ignoreAttributes: false, processEntities: false });

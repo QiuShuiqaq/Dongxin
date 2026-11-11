@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, extname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,7 +34,9 @@ export async function getKnowledgeSourceFile(id: string): Promise<{ source: Know
   if (!source) throw new ApiError(404, 'SOURCE_NOT_FOUND', '资料来源不存在');
   if (source.kind === 'MEDIA_GROUP' || source.kind === 'ARCHIVE') throw new ApiError(422, 'SOURCE_GROUP', '该项为素材分组或重复压缩包，请查看原始资料目录');
   const storedRoot = getDataPath('knowledge-files');
-  const originalRoot = resolve(process.env.KNOWLEDGE_SOURCE_ROOT || fileURLToPath(new URL('../../../../../ziliao/', import.meta.url)));
+  const archivedRoot = fileURLToPath(new URL('../../../../../Dongxin-research/01-client-source/ziliao/', import.meta.url));
+  const legacyRoot = fileURLToPath(new URL('../../../../../ziliao/', import.meta.url));
+  const originalRoot = resolve(process.env.KNOWLEDGE_SOURCE_ROOT || (existsSync(archivedRoot) ? archivedRoot : legacyRoot));
   const path = source.storageKey ? within(storedRoot, resolve(storedRoot, source.storageKey)) : within(originalRoot, resolve(originalRoot, source.relativePath));
   try { return { source, buffer: await readFile(path) }; }
   catch (error) {
