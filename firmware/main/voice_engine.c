@@ -74,6 +74,7 @@ typedef struct {
     bool ci_wake_online_fallback;
     bool continuous;
     bool ci_hardware_triggered;
+    bool ci_conversation_start;
     int endpoint_silence_ms;
     int idle_timeout_ms;
     int max_utterance_seconds;
@@ -560,6 +561,7 @@ static void set_stm32_revision_header(esp_http_client_handle_t client)
 static esp_err_t capture_continuous_turn(
     const voice_test_request_t *request,
     bool require_wake_word,
+    bool start_ci_conversation,
     bool *end_session
 )
 {
@@ -587,7 +589,9 @@ static esp_err_t capture_continuous_turn(
     size_t total_bytes = 0;
     const uint32_t ci_local_generation = s_ci_local_generation;
     const char *url = request->asr_only ? DX_VOICE_PCM_ASR_ONLY_URL
-        : require_wake_word ? DX_VOICE_PCM_URL : DX_VOICE_PCM_CI_WAKE_FALLBACK_URL;
+        : require_wake_word ? DX_VOICE_PCM_URL
+        : start_ci_conversation ? DX_VOICE_PCM_CI_WAKE_START_URL
+        : DX_VOICE_PCM_CI_WAKE_FALLBACK_URL;
 
     if (request->ci_hardware_triggered && s_ci_preroll != NULL) {
         memcpy(frames, s_ci_preroll, FRAME_BYTES * PREROLL_FRAMES);
@@ -1011,7 +1015,7 @@ static void voice_capture_task(void *argument)
                 if (!s_playback_cancel_requested) {
                     do {
                         const uint32_t turn_ci_generation = s_ci_local_generation;
-                        answer_error = capture_continuous_turn(&answer_request, false, &end_answer);
+                        answer_error = capture_continuous_turn(&answer_request, false, false, &end_answer);
                         if (answer_error == ESP_ERR_NOT_FOUND &&
                             s_ci_local_generation != turn_ci_generation) {
                             vTaskDelay(pdMS_TO_TICKS(DX_CI_FIXED_COMMAND_GRACE_MS));
@@ -1056,6 +1060,7 @@ static void voice_capture_task(void *argument)
                         err = capture_continuous_turn(
                             &request,
                             !request.asr_only && !request.ci_wake_online_fallback,
+                            false,
                             &end_session
                         );
                         if (err == ESP_ERR_NOT_FOUND) continue;
@@ -1105,6 +1110,7 @@ static void voice_capture_task(void *argument)
                 voice_test_request_t ci_request = {0};
                 ci_request.ci_wake_online_fallback = true;
                 ci_request.ci_hardware_triggered = true;
+                ci_request.ci_conversation_start = true;
                 ci_request.continuous = true;
                 ci_request.endpoint_silence_ms = 800;
                 ci_request.idle_timeout_ms = DX_CI_DIALOG_IDLE_MS;
@@ -1117,8 +1123,10 @@ static void voice_capture_task(void *argument)
                 esp_err_t ci_error;
                 do {
                     const uint32_t turn_ci_generation = s_ci_local_generation;
-                    ci_error = capture_continuous_turn(&ci_request, false, &end_session);
+                    ci_error = capture_continuous_turn(&ci_request, false,
+                                                      ci_request.ci_conversation_start, &end_session);
                     ci_request.ci_hardware_triggered = false;
+                    if (ci_error == ESP_OK) ci_request.ci_conversation_start = false;
                     if (ci_error == ESP_ERR_NOT_FOUND &&
                         s_ci_local_generation != turn_ci_generation) {
                         vTaskDelay(pdMS_TO_TICKS(DX_CI_FIXED_COMMAND_GRACE_MS));

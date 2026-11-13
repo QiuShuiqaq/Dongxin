@@ -1,9 +1,6 @@
 /*
- * Cloud access for the first real device-to-server slice.
- *
- * This version registers the device and sends heartbeats. It deliberately
- * does not implement control or audio until the MCU and audio pin contracts
- * are confirmed.
+ * Cloud access for registration, telemetry and polled device commands.
+ * Physical command execution is gated by device_command_execute_json().
  */
 
 #include <stdio.h>
@@ -408,7 +405,11 @@ static esp_err_t register_device(void)
     cJSON_AddTrueToObject(capabilities, "voiceAudioUpload");
     cJSON_AddTrueToObject(capabilities, "ttsPlayback");
     cJSON_AddTrueToObject(capabilities, "deviceStateReport");
-    cJSON_AddTrueToObject(capabilities, "commandPolling");
+    cJSON_AddBoolToObject(
+        capabilities,
+        "commandPolling",
+        DX_STM32_CONTROL_STAGE > 0 || DX_ENABLE_UART_BRIDGE || DX_ENABLE_PCF8574
+    );
     cJSON_AddTrueToObject(capabilities, "sensorReport");
     cJSON_AddItemToObject(root, "capabilities", capabilities);
 

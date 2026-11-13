@@ -5,6 +5,7 @@ import {
   CloudServerOutlined,
   DatabaseOutlined,
   DesktopOutlined,
+  ExperimentOutlined,
   LogoutOutlined,
   ReloadOutlined,
   SettingOutlined,
@@ -39,20 +40,22 @@ import type { FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import KnowledgeWorkbench from './KnowledgeWorkbench';
 import AiServiceManagement from './AiServiceManagement';
-import OperationsAiValidation from './OperationsAiValidation';
 import OperationsVoiceHistory from './OperationsVoiceHistory';
 import RuntimeStatusPanel from './RuntimeStatusPanel';
 import {
   AuthenticationRequiredError,
   getOperationsSession,
   getOperationsConsole,
+  getOperationsDeviceDetail,
   getOperationsDevicePage,
   loginOperations,
   logoutOperations,
   updateProactiveSettings,
+  updateOperationsDeviceProfile,
 } from "./api";
 import type {
   OperationsConsoleData,
+  OperationsDeviceDetail,
   OperationsUser,
 } from "./api";
 
@@ -230,6 +233,12 @@ export default function OperationsConsole() {
               label="系统状态"
               onClick={() => navigate("system")}
             />
+            {authUser?.role === 'ADMIN' ? <Nav
+              active={false}
+              icon={<ExperimentOutlined />}
+              label="研发工作台"
+              onClick={() => { window.location.assign('/lab.html'); }}
+            /> : null}
           </NavGroup>
         </nav>
         <div className="ops-user">
@@ -287,7 +296,7 @@ export default function OperationsConsole() {
             <Overview data={data} onNavigate={navigate} />
           ) : null}
           {data && section === "devices" ? (
-            <Devices refreshKey={knowledgeRefresh} />
+            <Devices refreshKey={knowledgeRefresh} canManage={authUser?.role === 'ADMIN'} />
           ) : null}
           {data && section === "knowledge" ? (
             <KnowledgeWorkbench user={authUser} refreshKey={knowledgeRefresh} />
@@ -451,25 +460,68 @@ function Overview({
   );
 }
 
-function Devices({ refreshKey }: { refreshKey: number }) {
+function Devices({ refreshKey, canManage }: { refreshKey: number; canManage: boolean }) {
   const { message } = App.useApp();
   const [filter, setFilter] = useState<string>();
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<OperationsDeviceDetail | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const [draftNotes, setDraftNotes] = useState('');
+  const [reloadToken, setReloadToken] = useState(0);
   const [result, setResult] = useState<{ items: DeviceProfile[]; total: number }>({ items: [], total: 0 });
   useEffect(() => {
     let active = true;
     const load = async () => {
       setLoading(true);
-      try { const value = await getOperationsDevicePage({ page: String(page), pageSize: '20', search, ...(filter ? { status: filter } : {}) }); if (active) setResult(value); }
+      try {
+        const value = await getOperationsDevicePage({ page: String(page), pageSize: '20', search, ...(filter ? { status: filter } : {}) });
+        if (active) {
+          setResult(value);
+          setSelectedId((previous) => value.items.some((item) => item.id === previous) ? previous : value.items[0]?.id ?? null);
+        }
+      }
       catch (error) { if (active) message.error(error instanceof Error ? error.message : String(error)); }
       finally { if (active) setLoading(false); }
     };
     const debounce = window.setTimeout(() => void load(), 180);
     const timer = window.setInterval(() => { if (!document.hidden) void load(); }, 30_000);
     return () => { active = false; window.clearTimeout(debounce); window.clearInterval(timer); };
-  }, [page, filter, search, refreshKey]);
+  }, [page, filter, search, refreshKey, reloadToken]);
+  useEffect(() => {
+    if (!selectedId) { setDetail(null); return; }
+    let active = true;
+    setDetail((current) => current?.device.id === selectedId ? current : null);
+    const load = async () => {
+      setDetailLoading(true);
+      try { const value = await getOperationsDeviceDetail(selectedId); if (active) setDetail(value); }
+      catch (error) { if (active) message.error(error instanceof Error ? error.message : String(error)); }
+      finally { if (active) setDetailLoading(false); }
+    };
+    void load();
+    const timer = window.setInterval(() => { if (!document.hidden) void load(); }, 30_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [selectedId, refreshKey, reloadToken]);
+
+  async function saveProfile() {
+    if (!detail || !draftName.trim()) return;
+    setSaving(true);
+    try {
+      const updated = await updateOperationsDeviceProfile(detail.device.id, { name: draftName.trim(), notes: draftNotes.trim() });
+      setDetail(updated);
+      setEditing(false);
+      setPage(1);
+      setReloadToken((value) => value + 1);
+      message.success('设备档案已保存');
+    } catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
+    finally { setSaving(false); }
+  }
+
   return (
     <div className="ops-stack">
       <div className="list-toolbar">
@@ -488,18 +540,21 @@ function Devices({ refreshKey }: { refreshKey: number }) {
           options={[
             { value: "ONLINE", label: "在线" },
             { value: "OFFLINE", label: "离线" },
+            { value: "UNKNOWN", label: "待确认" },
             { value: "FAULT", label: "故障" },
           ]}
         />
       </div>
-      <section className="ops-panel">
+      <div className="ops-device-layout">
+      <section className="ops-panel ops-device-list">
         <Table
           rowKey="id"
-          scroll={{ x: 980 }}
+          scroll={{ x: 560 }}
           dataSource={result.items}
           loading={loading}
           pagination={{ current: page, pageSize: 20, total: result.total, showSizeChanger: false, onChange: setPage }}
           locale={{ emptyText: "暂无已接入设备" }}
+          rowClassName={(row) => row.id === selectedId ? 'ops-device-selected' : ''}
           columns={[
             {
               title: "设备",
@@ -508,24 +563,11 @@ function Devices({ refreshKey }: { refreshKey: number }) {
                 <div className="device-name">
                   <span className={`device-dot ${row.status.toLowerCase()}`} />
                   <div>
-                    <strong>{row.name}</strong>
+                    <Button type="link" className="ops-device-name-button" onClick={() => { setSelectedId(row.id); setEditing(false); }}>{row.name}</Button>
                     <code>{row.id}</code>
                   </div>
                 </div>
               ),
-            },
-            { title: "产品型号", dataIndex: "model", width: 230 },
-            {
-              title: "固件版本",
-              dataIndex: "firmwareVersion",
-              width: 180,
-              render: (value: string | null) => value || "未上报",
-            },
-            {
-              title: "协议",
-              dataIndex: "protocol",
-              width: 100,
-              render: (value: string) => <Tag>{value}</Tag>,
             },
             {
               title: "状态",
@@ -533,15 +575,52 @@ function Devices({ refreshKey }: { refreshKey: number }) {
               width: 100,
               render: (value: string) => <DeviceStatus status={value} />,
             },
-            {
-              title: "最近更新",
-              dataIndex: "updatedAt",
-              width: 180,
-              render: formatDate,
-            },
+            { title: "型号", dataIndex: "model", width: 180, ellipsis: true },
           ]}
         />
       </section>
+      <section className="ops-panel ops-device-detail" aria-label="设备详情">
+        {!selectedId ? <Empty description="选择设备查看详情" /> : detailLoading && !detail ? <Skeleton active paragraph={{ rows: 7 }} /> : detail ? <>
+          <div className="panel-title">
+            <h2>{detail.device.name}</h2>
+            {canManage && !editing ? <Button size="small" onClick={() => {
+              setDraftName(detail.device.name); setDraftNotes(detail.device.notes ?? ''); setEditing(true);
+            }}>编辑档案</Button> : null}
+          </div>
+          <div className="ops-device-status-line"><DeviceStatus status={detail.device.status} /><span>连接状态以当前服务端收到的有效上报为准</span></div>
+          {editing ? <div className="ops-device-edit">
+            <label htmlFor="ops-device-name">设备名称</label>
+            <Input id="ops-device-name" value={draftName} maxLength={80} onChange={(event) => setDraftName(event.target.value)} />
+            <label htmlFor="ops-device-notes">备注</label>
+            <Input.TextArea id="ops-device-notes" value={draftNotes} maxLength={500} showCount rows={3} onChange={(event) => setDraftNotes(event.target.value)} />
+            <Space><Button type="primary" loading={saving} disabled={!draftName.trim()} onClick={() => void saveProfile()}>保存</Button>
+              <Button disabled={saving} onClick={() => setEditing(false)}>取消</Button></Space>
+          </div> : <dl className="ops-device-facts">
+            <div><dt>设备编号</dt><dd><code>{detail.device.id}</code></dd></div>
+            <div><dt>产品型号</dt><dd>{detail.device.model}</dd></div>
+            <div><dt>固件版本</dt><dd>{detail.device.firmwareVersion || '未上报'}</dd></div>
+            <div><dt>通信协议</dt><dd>{detail.device.protocol}</dd></div>
+            <div><dt>最近记录更新</dt><dd>{formatDate(detail.device.updatedAt)}</dd></div>
+            <div><dt>备注</dt><dd>{detail.device.notes || '无'}</dd></div>
+          </dl>}
+          <div className="ops-device-block">
+            <h3>最近状态记录</h3>
+            {detail.lastReport ? <><time>{formatDate(detail.lastReport.createdAt)}</time>
+              <details><summary>查看记录内容</summary><pre>{JSON.stringify(detail.lastReport.payload, null, 2)}</pre></details></> : <p>暂无状态记录</p>}
+          </div>
+          <div className="ops-device-block">
+            <h3>最近事件</h3>
+            {detail.recentEvents.length ? <ul className="ops-device-timeline">{detail.recentEvents.slice(0, 8).map((event) =>
+              <li key={event.id}><span>{event.type}</span><time>{formatDate(event.createdAt)}</time></li>)}</ul> : <p>暂无事件</p>}
+          </div>
+          <div className="ops-device-block">
+            <h3>最近命令</h3>
+            {detail.recentCommands.length ? <ul className="ops-device-timeline">{detail.recentCommands.slice(0, 8).map((command) =>
+              <li key={command.id}><span>{command.intent}</span><ResultTag value={command.status} /><time>{formatDate(command.createdAt)}</time></li>)}</ul> : <p>暂无命令</p>}
+          </div>
+        </> : <Empty description="设备详情暂不可用" />}
+      </section>
+      </div>
     </div>
   );
 }
@@ -566,7 +645,7 @@ function AiOperations({
   const [quietStart, setQuietStart] = useState(data.proactiveSettings.quietHours.start);
   const [quietEnd, setQuietEnd] = useState(data.proactiveSettings.quietHours.end);
   const [saving, setSaving] = useState(false);
-  const [view, setView] = useState<'services' | 'policy' | 'validation'>('services');
+  const [view, setView] = useState<'services' | 'policy'>('services');
 
   useEffect(() => {
     setEnabled(data.proactiveSettings.enabled);
@@ -597,8 +676,8 @@ function AiOperations({
 
   return (
     <div className="ops-stack">
-      <div className="ops-workbar"><Segmented aria-label="AI 运营视图" value={view} onChange={(value) => setView(value as 'services' | 'policy' | 'validation')} options={[{ label: '服务配置', value: 'services' }, { label: '运行策略', value: 'policy' }, { label: 'AI 验证', value: 'validation' }]} /></div>
-      {view === 'services' ? <AiServiceManagement canManage={canManage} /> : view === 'validation' ? <OperationsAiValidation providers={data.providers} devices={data.devices} canManage={canManage} /> : <>
+      <div className="ops-workbar"><Segmented aria-label="AI 运营视图" value={view} onChange={(value) => setView(value as 'services' | 'policy')} options={[{ label: '服务配置', value: 'services' }, { label: '运行策略', value: 'policy' }]} /></div>
+      {view === 'services' ? <AiServiceManagement canManage={canManage} /> : <>
       <section className="ops-panel proactive-settings">
         <PanelTitle title="主动沟通" action={<Button type="primary" loading={saving} disabled={!canManage} onClick={() => void save()}>保存设置</Button>} />
         <div className="setting-row">
@@ -913,6 +992,7 @@ function DeviceStatus({ status }: { status: string }) {
   const map: Record<string, ["success" | "error" | "default", string]> = {
     ONLINE: ["success", "在线"],
     OFFLINE: ["default", "离线"],
+    UNKNOWN: ["default", "待确认"],
     FAULT: ["error", "故障"],
   };
   const item = map[status] || ["default", status];

@@ -521,6 +521,32 @@ body {
   color: #86929d;
   font-size: 9px;
 }
+.ops-device-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 420px); align-items: start; gap: 14px; }
+.ops-device-list .ant-table-tbody > .ops-device-selected > td { background: #edf7f5; }
+.ops-device-name-button { height: auto; padding: 0; font-weight: 600; text-align: left; white-space: normal; }
+.ops-device-detail { min-height: 350px; }
+.ops-device-detail .panel-title h2 { min-width: 0; overflow-wrap: anywhere; }
+.ops-device-status-line { display: flex; flex-wrap: wrap; gap: 7px 12px; align-items: center; padding-bottom: 13px; color: #71808e; font-size: 11px; }
+.ops-device-facts { display: grid; gap: 0; margin: 0; }
+.ops-device-facts > div { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; padding: 7px 0; border-top: 1px solid #edf0f2; font-size: 12px; }
+.ops-device-facts dt { color: #788592; }
+.ops-device-facts dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.ops-device-facts code { font-size: 11px; }
+.ops-device-edit { display: grid; gap: 7px; padding: 10px 0 14px; border-top: 1px solid #edf0f2; }
+.ops-device-edit label { color: #60717e; font-size: 12px; }
+.ops-device-edit .ant-space { margin-top: 10px; }
+.ops-device-block { padding-top: 13px; margin-top: 12px; border-top: 1px solid #dfe5e9; }
+.ops-device-block h3 { margin: 0 0 9px; color: #314351; font-size: 13px; }
+.ops-device-block > p { margin: 0; color: #81909c; font-size: 12px; }
+.ops-device-block > time { color: #627583; font-size: 12px; }
+.ops-device-block details { margin-top: 9px; font-size: 12px; }
+.ops-device-block summary { width: fit-content; color: #16776a; cursor: pointer; }
+.ops-device-block pre { max-height: 180px; padding: 9px; overflow: auto; background: #f5f7f8; border: 1px solid #e5e9ec; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ops-device-timeline { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.ops-device-timeline li { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-width: 0; padding: 6px 0; border-top: 1px solid #edf0f2; font-size: 11px; overflow-wrap: anywhere; }
+.ops-device-timeline li span:first-child { flex: 1 1 auto; min-width: 90px; }
+.ops-device-timeline time { color: #8a98a3; }
+@media (max-width: 1150px) { .ops-device-layout { grid-template-columns: 1fr; } }
 .activation-flow {
   display: grid;
   grid-template-columns: 1fr 70px 1fr 70px 1fr 70px 1fr;

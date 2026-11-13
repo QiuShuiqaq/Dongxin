@@ -170,6 +170,33 @@ test('a verified CI wake event opens online fallback without requiring ASR to he
   assert.notEqual(response.replyText, '我在');
 });
 
+test('a new hardware CI wake starts fresh context while later utterances continue it', async () => {
+  const deviceInput = { ...base, inputSource: 'DEVICE_AUDIO', audioBase64: 'Zml4dHVyZQ==',
+    mimeType: 'audio/wav', requireWakeWord: false, ciWakeAcknowledged: true };
+  transcript = '我叫小林';
+  const first = await runVoicePipeline({ ...deviceInput, ciWakeStart: true });
+  transcript = '我叫什么';
+  const followUp = await runVoicePipeline(deviceInput);
+  assert.equal(followUp.conversationId, first.conversationId);
+  assert.equal(modelCalls[1].history?.[0].content, '我叫小林');
+
+  transcript = '我们重新开始';
+  const secondWake = await runVoicePipeline({ ...deviceInput, ciWakeStart: true });
+  assert.notEqual(secondWake.conversationId, first.conversationId);
+  assert.deepEqual(modelCalls[2].history, []);
+  transcript = '刚才说了什么';
+  const secondFollowUp = await runVoicePipeline(deviceInput);
+  assert.equal(secondFollowUp.conversationId, secondWake.conversationId);
+  assert.equal(modelCalls[3].history?.[0].content, '我们重新开始');
+});
+
+test('only CI-acknowledged device audio can start a new CI conversation', async () => {
+  await assert.rejects(() => runVoicePipeline({ ...base, text: '你好', ciWakeStart: true }));
+  await assert.rejects(() => runVoicePipeline({ ...base, inputSource: 'DEVICE_AUDIO',
+    audioBase64: 'Zml4dHVyZQ==', ciWakeStart: true }));
+  assert.equal(modelCalls.length, 0);
+});
+
 test('device audio writes text-only production PostgreSQL history when explicitly enabled', async () => {
   const previous = process.env.VOICE_HISTORY_BACKEND;
   process.env.VOICE_HISTORY_BACKEND = 'postgres';
@@ -251,4 +278,23 @@ test('test parameters limit model context and do not bypass command safety', asy
   assert.equal(modelCalls[2].history?.length, 2);
   await runLlmModuleTest({ deviceId: base.deviceId, text: '无历史', conversationId: first.conversationId, llmHistoryTurns: 0 });
   assert.deepEqual(modelCalls[3].history, []);
+});
+
+test('LLM test injects fixed context and a bounded state copy without changing the device or playing audio', async () => {
+  const priorState = structuredClone(state);
+  const response = await runLlmModuleTest({
+    deviceId: base.deviceId,
+    text: '东信在哪里',
+    knowledgeContext: '测试资料：东信位于嘉兴。',
+    deviceStatePatch: { isOnline: false, faultCode: 'E01' },
+  });
+  assert.equal(modelCalls.length, 1);
+  assert.equal(modelCalls[0].knowledgeContext, '测试资料：东信位于嘉兴。');
+  assert.equal(modelCalls[0].deviceState.isOnline, false);
+  assert.equal(modelCalls[0].deviceState.faultCode, 'E01');
+  assert.equal(response.evaluatedDeviceState.isOnline, false);
+  assert.equal(response.evaluatedDeviceState.faultCode, 'E01');
+  assert.deepEqual(state, priorState);
+  assert.equal(response.safetyResult.commands.length, 0);
+  assert.deepEqual(ttsCalls, []);
 });

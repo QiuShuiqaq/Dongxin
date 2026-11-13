@@ -7,6 +7,7 @@ import {
   UpdateTestSetRequestSchema,
 } from "@dongxin/shared";
 import { z } from "zod";
+import { requireOperationsRole } from "../services/operationsAuth.service.js";
 import {
   addTestCaseToSet,
   createTestSet,
@@ -31,36 +32,45 @@ const TestCaseParamsSchema = z.object({
 export async function registerTestSetsRoutes(
   server: FastifyInstance,
 ): Promise<void> {
-  server.get("/api/test-sets", async () => listTestSetSummaries());
+  server.get("/api/test-sets", async (request) => {
+    requireOperationsRole(request.headers.authorization, ['ADMIN']);
+    return listTestSetSummaries();
+  });
 
   server.get("/api/test-sets/:testSetId", async (request) => {
+    requireOperationsRole(request.headers.authorization, ['ADMIN']);
     const params = TestSetParamsSchema.parse(request.params);
     return getTestSet(params.testSetId);
   });
 
   server.post("/api/test-sets", async (request) => {
+    requireOperationsRole(request.headers.authorization, ['ADMIN']);
     CreateTestSetRequestSchema.parse(request.body);
     return createTestSet(request.body);
   });
 
   server.post("/api/test-sets/import-md", async (request) => {
+    requireOperationsRole(request.headers.authorization, ['ADMIN']);
     ImportTestSetMarkdownRequestSchema.parse(request.body);
     return importTestSetMarkdown(request.body);
   });
 
   server.patch("/api/test-sets/:testSetId", async (request) => {
+    requireOperationsRole(request.headers.authorization, ['ADMIN']);
     const params = TestSetParamsSchema.parse(request.params);
     UpdateTestSetRequestSchema.parse(request.body);
     return updateTestSet(params.testSetId, request.body);
   });
 
   server.delete("/api/test-sets/:testSetId", async (request) => {
+    requireOperationsRole(request.headers.authorization, ['ADMIN']);
     const params = TestSetParamsSchema.parse(request.params);
     await deleteTestSet(params.testSetId);
     return { success: true };
   });
 
   server.post("/api/test-sets/:testSetId/cases", async (request) => {
+    requireOperationsRole(request.headers.authorization, ['ADMIN']);
     const params = TestSetParamsSchema.parse(request.params);
     CreateTestCaseRequestSchema.parse(request.body);
     return addTestCaseToSet(params.testSetId, request.body);
@@ -69,6 +79,7 @@ export async function registerTestSetsRoutes(
   server.patch(
     "/api/test-sets/:testSetId/cases/:testCaseId",
     async (request) => {
+      requireOperationsRole(request.headers.authorization, ['ADMIN']);
       const params = TestCaseParamsSchema.parse(request.params);
       UpdateTestCaseRequestSchema.parse(request.body);
       return updateTestCaseInSet(
@@ -82,6 +93,7 @@ export async function registerTestSetsRoutes(
   server.delete(
     "/api/test-sets/:testSetId/cases/:testCaseId",
     async (request) => {
+      requireOperationsRole(request.headers.authorization, ['ADMIN']);
       const params = TestCaseParamsSchema.parse(request.params);
       return deleteTestCaseFromSet(params.testSetId, params.testCaseId);
     },

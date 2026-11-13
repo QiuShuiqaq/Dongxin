@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { ApiError } from '../http/apiError.js';
 import { DEFAULT_DEVICE_ID } from '../repositories/system.repository.js';
 import {
   DeviceCommandRequestSchema,
@@ -16,7 +17,6 @@ import {
   queueDeviceCommand,
   recordDeviceEvent
 } from '../services/deviceRegistry.service.js';
-import { publishQueuedDeviceCommand } from '../services/mqttGateway.service.js';
 
 export async function registerDevicesRoutes(server: FastifyInstance): Promise<void> {
   server.get('/api/device-state', async () => getCurrentDeviceState());
@@ -45,15 +45,17 @@ export async function registerDevicesRoutes(server: FastifyInstance): Promise<vo
 
   server.post('/api/devices/:deviceId/events', async (request) => {
     const { deviceId } = request.params as { deviceId: string };
+    await assertSimulationDevice(deviceId);
     return recordDeviceEvent({
-      deviceId,
-      ...(request.body as Record<string, unknown>)
+      ...(request.body as Record<string, unknown>),
+      deviceId
     });
   });
 
   server.post('/api/devices/:deviceId/commands', async (request) => {
     const { deviceId } = request.params as { deviceId: string };
     const body = DeviceCommandRequestSchema.parse(request.body);
+    await assertSimulationDevice(deviceId);
     const command = await queueDeviceCommand({
       deviceId,
       intent: body.intent,
@@ -62,17 +64,7 @@ export async function registerDevicesRoutes(server: FastifyInstance): Promise<vo
       safetyDecision: null,
       completedAt: null
     });
-    const device = await getDevice(deviceId);
-    if (device.protocol === 'SIMULATOR') {
-      return executeCommandForDevice(deviceId, command);
-    }
-
-    const delivered = await publishQueuedDeviceCommand(command);
-    return {
-      state: await getDeviceState(deviceId),
-      command,
-      delivery: delivered ? 'MQTT' : 'QUEUED_FOR_DEVICE'
-    };
+    return executeCommandForDevice(deviceId, command);
   });
 
   server.get('/api/devices/:deviceId/commands', async (request) => {
@@ -80,4 +72,11 @@ export async function registerDevicesRoutes(server: FastifyInstance): Promise<vo
     await getDevice(deviceId);
     return listCommandsForDevice(deviceId);
   });
+}
+
+async function assertSimulationDevice(deviceId: string): Promise<void> {
+  const device = await getDevice(deviceId);
+  if (device.protocol !== 'SIMULATOR') {
+    throw new ApiError(403, 'PHYSICAL_DEVICE_SIMULATION_FORBIDDEN', '实体设备不能通过模拟接口上报事件或执行命令');
+  }
 }

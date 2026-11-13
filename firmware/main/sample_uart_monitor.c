@@ -17,6 +17,7 @@
 #include "stm32_protocol.h"
 #include "stm32_protocol_self_test.h"
 #include "voice_engine.h"
+#include "wifi_manager.h"
 
 static const char *TAG = "STM32_UART";
 
@@ -37,6 +38,13 @@ static uint8_t s_ci_last_sequence;
 static uint8_t s_ci_last_event_type;
 static uint8_t s_ci_last_semantic_id;
 static TickType_t s_ci_last_tick;
+static uint8_t s_wifi_setup_last_sequence;
+static TickType_t s_wifi_setup_last_tick;
+static bool s_wifi_setup_sequence_seen;
+#if defined(CONFIG_DX_WIFI_PROVISIONING) && CONFIG_DX_WIFI_PROVISIONING
+static TaskHandle_t s_wifi_setup_task;
+static void wifi_setup_task(void *arg);
+#endif
 
 static void monitor_task(void *arg);
 static void handle_status_frame(const uint8_t frame[DX_STM32_FRAME_SIZE]);
@@ -120,9 +128,22 @@ esp_err_t sample_uart_monitor_init(void)
         return err;
     }
 
+#if defined(CONFIG_DX_WIFI_PROVISIONING) && CONFIG_DX_WIFI_PROVISIONING
+    if (xTaskCreate(wifi_setup_task, "stm32_wifi_setup", 4096, NULL, 4,
+                    &s_wifi_setup_task) != pdPASS) {
+        s_wifi_setup_task = NULL;
+        ESP_LOGE(TAG, "STM32 Wi-Fi setup requests unavailable: no worker task");
+    }
+#endif
     s_ready = true;
     if (xTaskCreate(monitor_task, "stm32_uart_rx", 4096, NULL, 5, NULL) != pdPASS) {
         s_ready = false;
+#if defined(CONFIG_DX_WIFI_PROVISIONING) && CONFIG_DX_WIFI_PROVISIONING
+        if (s_wifi_setup_task != NULL) {
+            vTaskDelete(s_wifi_setup_task);
+            s_wifi_setup_task = NULL;
+        }
+#endif
         uart_driver_delete(UART_NUM_1);
         return ESP_ERR_NO_MEM;
     }
@@ -293,6 +314,18 @@ esp_err_t sample_uart_monitor_execute_action(
 }
 
 #if DX_ENABLE_SAMPLE_UART_MONITOR
+#if defined(CONFIG_DX_WIFI_PROVISIONING) && CONFIG_DX_WIFI_PROVISIONING
+static void wifi_setup_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        const esp_err_t err = wifi_manager_start_provisioning();
+        ESP_LOGI(TAG, "STM32 Wi-Fi setup request: %s", esp_err_to_name(err));
+    }
+}
+#endif
+
 static void monitor_task(void *arg)
 {
     (void)arg;
@@ -350,6 +383,27 @@ static void handle_status_frame(const uint8_t frame[DX_STM32_FRAME_SIZE])
     portENTER_CRITICAL(&s_ack_lock);
     s_control_revision = status.control_revision;
     portEXIT_CRITICAL(&s_ack_lock);
+
+    if (status.wifi_setup_requested) {
+        const TickType_t now = xTaskGetTickCount();
+        if (!s_wifi_setup_sequence_seen ||
+            s_wifi_setup_last_sequence != status.wifi_setup_sequence ||
+            (TickType_t)(now - s_wifi_setup_last_tick) >= pdMS_TO_TICKS(5000)) {
+            s_wifi_setup_sequence_seen = true;
+            s_wifi_setup_last_sequence = status.wifi_setup_sequence;
+            s_wifi_setup_last_tick = now;
+#if defined(CONFIG_DX_WIFI_PROVISIONING) && CONFIG_DX_WIFI_PROVISIONING
+            if (s_wifi_setup_task != NULL) {
+                xTaskNotifyGive(s_wifi_setup_task);
+            } else {
+                ESP_LOGE(TAG, "STM32 Wi-Fi setup request ignored: no worker task");
+            }
+#else
+            ESP_LOGI(TAG, "STM32 Wi-Fi setup request ignored: setup disabled");
+#endif
+        }
+        return;
+    }
 
     if (status.ci_event_type != DX_STM32_CI_EVENT_NONE) {
         /* A repeated UART event is not a second user utterance. Allow the same

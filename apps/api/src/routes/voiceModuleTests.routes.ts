@@ -12,6 +12,10 @@ import {
 const ParamsSchema = z.object({ id: z.string().uuid() });
 
 export async function registerVoiceModuleTestRoutes(server: FastifyInstance): Promise<void> {
+  server.post('/api/development/llm-evaluation', async (request) => {
+    z.object({ deviceId: z.string().regex(/^DX-EVAL-[0-9a-f-]{36}$/) }).parse(request.body);
+    return testLlm(request.body);
+  });
   server.post("/api/development/module-tests/llm", async (request) => {
     const result = await testLlm(request.body);
     const deviceId = z.object({ deviceId: z.string().min(1) }).parse(request.body).deviceId;

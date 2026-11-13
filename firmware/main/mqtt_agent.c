@@ -795,7 +795,11 @@ static void publish_registration(void)
     cJSON_AddStringToObject(data, "protocolVersion", DX_PROTOCOL_VERSION);
     cJSON_AddStringToObject(data, "mac", mac_text);
     cJSON_AddBoolToObject(capabilities, "deviceStateReport", true);
-    cJSON_AddBoolToObject(capabilities, "mqttCommand", true);
+    cJSON_AddBoolToObject(
+        capabilities,
+        "mqttCommand",
+        DX_STM32_CONTROL_STAGE > 0 || DX_ENABLE_UART_BRIDGE || DX_ENABLE_PCF8574
+    );
     cJSON_AddBoolToObject(capabilities, "uartBridge", DX_ENABLE_UART_BRIDGE);
     cJSON_AddBoolToObject(capabilities, "textSimulation", DX_ENABLE_TEXT_SIMULATION);
     cJSON_AddBoolToObject(capabilities, "audio", DX_ENABLE_AUDIO);
@@ -858,7 +862,8 @@ static void publish_registration(void)
     cJSON_AddBoolToObject(
         capabilities,
         "virtualHal",
-        direct_control_hal_is_virtual()
+        direct_control_hal_is_virtual() &&
+            !(DX_ENABLE_SAMPLE_UART_MONITOR && DX_STM32_CONTROL_STAGE == 0)
     );
     cJSON_AddBoolToObject(capabilities, "pcf8574", DX_ENABLE_PCF8574);
     cJSON_AddBoolToObject(capabilities, "ci1302", false);

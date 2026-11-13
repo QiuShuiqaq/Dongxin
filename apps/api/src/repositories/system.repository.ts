@@ -21,13 +21,14 @@ import { z } from 'zod';
 import { readJsonFile, writeJsonFile, updateJsonFile } from '../storage.js';
 import { retainRecent, retentionSettings } from '../runtime/retention.js';
 import { assertPilotDeviceLimit } from '../runtime/pilotLimits.js';
+import { projectDevicePresence } from '../runtime/devicePresence.js';
 import { initialKnowledgeDocuments, initialKnowledgeSources } from './knowledgeSeed.js';
 
 const DEFAULT_DEVICE_ID = 'demo-bath-heater-001';
 
 export async function listDeviceProfiles(): Promise<DeviceProfile[]> {
   const devices = await readJsonFile<DeviceProfile[]>('devices.json', [createDefaultDeviceProfile()]);
-  return z.array(DeviceProfileSchema).parse(devices);
+  return z.array(DeviceProfileSchema).parse(devices).map((device) => projectDevicePresence(device));
 }
 
 export async function getDeviceProfile(deviceId: string): Promise<DeviceProfile | null> {
@@ -42,9 +43,9 @@ export async function saveDeviceProfiles(devices: DeviceProfile[]): Promise<Devi
   return parsed;
 }
 
-export function updateDeviceProfiles(update: (devices: DeviceProfile[]) => DeviceProfile[]): Promise<DeviceProfile[]> {
-  return updateJsonFile<DeviceProfile[], DeviceProfile[]>('devices.json', [createDefaultDeviceProfile()], (devices) => {
-    const value = z.array(DeviceProfileSchema).parse(update(z.array(DeviceProfileSchema).parse(devices)));
+export function updateDeviceProfiles(update: (devices: DeviceProfile[]) => DeviceProfile[] | Promise<DeviceProfile[]>): Promise<DeviceProfile[]> {
+  return updateJsonFile<DeviceProfile[], DeviceProfile[]>('devices.json', [createDefaultDeviceProfile()], async (devices) => {
+    const value = z.array(DeviceProfileSchema).parse(await update(z.array(DeviceProfileSchema).parse(devices)));
     assertPilotDeviceLimit(value);
     return { value, result: value };
   });

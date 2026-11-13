@@ -69,6 +69,16 @@ esp_err_t device_command_execute_json(
     }
 
     memset(out_result, 0, sizeof(*out_result));
+#if DX_ENABLE_SAMPLE_UART_MONITOR && DX_STM32_CONTROL_STAGE == 0
+    /* Both HTTP polling and MQTT downlinks use this gate. A receive-only
+     * pilot must not report virtual HAL success for a physical load. */
+    out_result->status = "rejected";
+    strcpy(out_result->execution_path, "STM32_RECEIVE_ONLY");
+    strcpy(out_result->error_code, "STM32_RECEIVE_ONLY");
+    strcpy(out_result->message, "STM32 control is disabled in receive-only firmware");
+    ESP_LOGW(TAG, "Command %s rejected: STM32 receive-only stage", command_id);
+    return ESP_OK;
+#endif
     out_result->status = "success";
     int action_count = cJSON_GetArraySize(actions);
     if (action_count != 1) {

@@ -38,7 +38,7 @@ const manifest = JSON.parse(readFileSync(join(directory, 'release.json'), 'utf8'
 if (manifest.version !== version || manifest.nodeMajor !== Number(process.versions.node.split('.')[0]) || manifest.dataFormatVersion !== 1) {
   throw new Error('Unsupported release manifest or Node version; review the migration plan');
 }
-for (const file of ['package-lock.json', 'apps/api/src/index.ts', 'apps/mqtt-broker/src/index.ts', 'apps/operations-console/dist/index.html', 'deploy/activate-release.sh']) {
+for (const file of ['package-lock.json', 'apps/api/src/index.ts', 'apps/mqtt-broker/src/index.ts', 'apps/operations-console/dist/index.html', 'apps/operations-console/dist/lab.html', 'deploy/activate-release.sh']) {
   if (!statSync(join(directory, file)).isFile()) throw new Error(`Release file missing: ${file}`);
 }
 NODE
@@ -59,6 +59,6 @@ if [[ $mode == prepare ]]; then
     exit 0
 fi
 bash "$target/deploy/activate-release.sh" "$version"
-curl --fail --silent --max-time 10 http://127.0.0.1:8080/api/health |
+curl --fail --silent --max-time 10 http://127.0.0.1:3077/api/health |
     "$base/node/bin/node" -e 'let b=""; process.stdin.on("data", c => b+=c); process.stdin.on("end", () => { try { if (JSON.parse(b).ok !== true) process.exit(1); } catch { process.exit(1); } });'
-echo 'Nginx/API health check passed. Verify staff login and the required pages.'
+echo 'API health check passed. Verify the public Nginx host, staff login and the required pages.'

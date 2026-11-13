@@ -1,14 +1,17 @@
 import { randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { DeviceCommandRecord } from '@dongxin/shared';
 import mqtt, { type MqttClient } from 'mqtt';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { performance } from 'node:perf_hooks';
 import { TaskScheduler } from '../runtime/scheduler.js';
 import { RequestReplay } from '../runtime/requestReplay.js';
 import { limitSetting } from '../runtime/limits.js';
 import { isCommandCurrent } from '../runtime/commandGuard.js';
 import { assertWorkActive } from '../runtime/workload.js';
+import { devicePresence, shouldProcessMqttUplink } from '../runtime/devicePresence.js';
 import { listDeviceCommands, patchDeviceCommand } from '../repositories/system.repository.js';
 import {
   commandToPollingResponse,
@@ -30,6 +33,8 @@ const EnvelopeSchema = z.object({
 
 let client: MqttClient | null = null;
 let connected = false;
+let gatewaySession = 0;
+const inboundSession = new AsyncLocalStorage<number>();
 const upstream = new TaskScheduler({
   concurrency: limitSetting('MQTT_UPSTREAM_CONCURRENCY', 4),
   maxWaiting: limitSetting('MQTT_UPSTREAM_QUEUE_LENGTH', 256, 0),
@@ -50,7 +55,7 @@ export function startMqttGateway(log: {
   gatewayLog = log;
 
   const brokerUrl = process.env.MQTT_URL || 'mqtt://127.0.0.1:1883';
-  client = mqtt.connect(brokerUrl, {
+  const current = mqtt.connect(brokerUrl, {
     clientId: 'dongxin-api-gateway',
     username: process.env.MQTT_GATEWAY_USERNAME || 'gateway',
     password: process.env.MQTT_GATEWAY_PASSWORD || 'dongxin-local-gateway',
@@ -61,38 +66,53 @@ export function startMqttGateway(log: {
     ...(process.env.MQTT_CA_FILE ? { ca: readFileSync(process.env.MQTT_CA_FILE) } : {}),
     ...(process.env.MQTT_TLS_SERVERNAME ? { servername: process.env.MQTT_TLS_SERVERNAME } : {}),
   });
+  client = current;
 
-  client.on('connect', () => {
+  current.on('connect', () => {
+    if (client !== current) return;
     connected = true;
+    gatewaySession = devicePresence.startMqttSession();
     log.info({ brokerUrl }, 'MQTT gateway connected');
-    client?.subscribe(MQTT_UP_TOPIC, { qos: 1 }, (error) => {
+    current.subscribe(MQTT_UP_TOPIC, { qos: 1 }, (error) => {
+      if (client !== current) return;
       if (error) {
         log.error({ error }, 'MQTT gateway subscription failed');
         return;
       }
-      void publishPendingCommands(log);
     });
   });
 
-  client.on('reconnect', () => {
+  current.on('reconnect', () => {
+    if (client !== current) return;
+    connected = false;
+    devicePresence.endMqttSession();
     log.warn({ brokerUrl }, 'MQTT gateway reconnecting');
   });
-  client.on('close', () => {
+  current.on('close', () => {
+    if (client !== current) return;
     connected = false;
+    devicePresence.endMqttSession();
   });
-  client.on('error', (error) => {
+  current.on('error', (error) => {
+    if (client !== current) return;
     log.warn({ error, brokerUrl }, 'MQTT gateway error');
   });
-  client.on('message', (topic, payload) => {
+  current.on('message', (topic, payload, packet) => {
+    if (client !== current) return;
     // Bound retained buffers before parsing; never build an unbounded Promise chain.
     if (payload.length > 64 * 1024) {
       log.warn({ topic, bytes: payload.length }, 'MQTT upstream payload too large');
       return;
     }
+    // Retained reports describe an earlier connection, not the current one.
+    if (!shouldProcessMqttUplink(packet)) return;
     const match = topic.match(/^dongxin\/v1\/devices\/([^/]+)\/up\/([^/]+)$/);
     if (!match) return;
+    const generation = gatewaySession;
+    const receivedAt = performance.now();
     const priority = match[2] === 'command-result' ? 2 : match[2] === 'heartbeat' ? 0 : 1;
-    void upstream.run(match[1], () => handleUpstreamMessage(topic, payload), { priority }).catch((error) => {
+    void upstream.run(match[1], () => inboundSession.run(generation,
+      () => handleUpstreamMessage(topic, payload, generation, receivedAt)), { priority }).catch((error) => {
       log.error({ error, topic }, 'MQTT upstream message rejected');
     });
   });
@@ -102,6 +122,7 @@ export async function stopMqttGateway(): Promise<void> {
   const current = client;
   client = null;
   connected = false;
+  devicePresence.endMqttSession();
   gatewayLog = null;
   if (!current) {
     return;
@@ -127,13 +148,13 @@ export function getMqttGatewayStatus() {
   };
 }
 
-export async function publishQueuedDeviceCommand(command: DeviceCommandRecord): Promise<boolean> {
+export async function publishQueuedDeviceCommand(command: DeviceCommandRecord, generation = inboundSession.getStore() ?? gatewaySession): Promise<boolean> {
   assertWorkActive();
   if (!isCommandCurrent(command)) {
     await patchDeviceCommand(command.id, { status: 'FAILED', completedAt: new Date().toISOString() });
     return false;
   }
-  if (!client || !connected || command.status !== 'QUEUED' || command.slots.delivery === 'direct-response') {
+  if (!client || !connected || !devicePresence.isCurrentMqttSession(generation) || devicePresence.mqttStatus(command.deviceId) !== 'ONLINE' || command.status !== 'QUEUED' || command.slots.delivery === 'direct-response') {
     return false;
   }
 
@@ -150,10 +171,12 @@ export async function publishQueuedDeviceCommand(command: DeviceCommandRecord): 
     data: delivery
   };
   try {
+    if (devicePresence.mqttStatus(command.deviceId) !== 'ONLINE') return false;
     await publish(
       `dongxin/v1/devices/${command.deviceId}/down/command`,
       JSON.stringify(envelope),
-      1
+      1,
+      generation
     );
     return true;
   } catch {
@@ -247,7 +270,8 @@ export async function publishBoardTestControl(input: {
   );
 }
 
-async function handleUpstreamMessage(topic: string, payload: Buffer): Promise<void> {
+async function handleUpstreamMessage(topic: string, payload: Buffer, generation: number, receivedAt: number): Promise<void> {
+  if (!devicePresence.isCurrentMqttSession(generation)) return;
   const topicMatch = topic.match(/^dongxin\/v1\/devices\/([^/]+)\/up\/([^/]+)$/);
   if (!topicMatch) {
     throw new Error(`Invalid upstream topic: ${topic}`);
@@ -266,12 +290,28 @@ async function handleUpstreamMessage(topic: string, payload: Buffer): Promise<vo
   if (messageType === 'status' && envelope.messageId === 'lwt' && envelope.sentAt === 'broker' &&
       typeof envelope.data.state === 'object' && envelope.data.state !== null &&
       'isOnline' in envelope.data.state && envelope.data.state.isOnline === false) {
+    devicePresence.observeMqtt(generation, topicDeviceId, 'OFFLINE', receivedAt);
     await dispatchUpstreamMessage(topicDeviceId, messageType, envelope.data);
     return;
   }
   const fingerprint = createHash('sha256').update(JSON.stringify(envelope.data)).digest('hex');
-  return upstreamReplay.run(JSON.stringify([topicDeviceId, messageType, envelope.messageId]), fingerprint,
-    () => dispatchUpstreamMessage(topicDeviceId, messageType, envelope.data));
+  let flushPending = false;
+  // MQTT DUP only means possible redelivery. Deduplicate proven message IDs,
+  // and never let a replay refresh presence after a later disconnect.
+  await upstreamReplay.run(JSON.stringify([topicDeviceId, messageType, envelope.messageId]), fingerprint, async () => {
+    if (!devicePresence.isCurrentMqttSession(generation)) return;
+    const reportsPresence = ['register', 'heartbeat', 'state', 'status'].includes(messageType);
+    const state = envelope.data.state;
+    const offline = (messageType === 'state' || messageType === 'status') &&
+      typeof state === 'object' && state !== null && 'isOnline' in state && state.isOnline === false;
+    if (offline) devicePresence.observeMqtt(generation, topicDeviceId, 'OFFLINE', receivedAt);
+    await dispatchUpstreamMessage(topicDeviceId, messageType, envelope.data);
+    if (!reportsPresence || offline || !devicePresence.isCurrentMqttSession(generation)) return;
+    const wasOnline = devicePresence.mqttStatus(topicDeviceId) === 'ONLINE';
+    flushPending = devicePresence.observeMqtt(generation, topicDeviceId, 'ONLINE', receivedAt) &&
+      (messageType === 'register' || !wasOnline);
+  });
+  if (flushPending) await publishPendingCommands(gatewayLog, topicDeviceId, generation);
 }
 
 async function dispatchUpstreamMessage(deviceId: string, messageType: string, data: Record<string, unknown>): Promise<void> {
@@ -279,14 +319,13 @@ async function dispatchUpstreamMessage(deviceId: string, messageType: string, da
   switch (messageType) {
     case 'register':
       await registerDeviceAccess(body, 'MQTT');
-      await publishPendingCommands(gatewayLog, deviceId);
       return;
     case 'heartbeat':
-      await handleDeviceHeartbeat(body);
+      await handleDeviceHeartbeat(body, 'MQTT');
       return;
     case 'state':
     case 'status':
-      await handleDeviceStateReport(body);
+      await handleDeviceStateReport(body, 'MQTT');
       return;
     case 'event':
       await handleDeviceAccessEvent(body);
@@ -313,7 +352,8 @@ async function dispatchUpstreamMessage(deviceId: string, messageType: string, da
 
 async function publishPendingCommands(
   log: { warn: (details: unknown, message?: string) => void } | null,
-  deviceId?: string
+  deviceId: string,
+  generation: number,
 ): Promise<void> {
   const commands = await listDeviceCommands();
   const pending = commands.filter(
@@ -323,6 +363,7 @@ async function publishPendingCommands(
       (!deviceId || command.deviceId === deviceId)
   );
   for (const command of pending) {
+    if (!devicePresence.isCurrentMqttSession(generation) || devicePresence.mqttStatus(deviceId) !== 'ONLINE') return;
     if (Date.now() > new Date(command.createdAt).getTime() + 60_000) {
       await patchDeviceCommand(command.id, {
         status: 'FAILED',
@@ -332,21 +373,24 @@ async function publishPendingCommands(
       continue;
     }
     try {
-      await publishQueuedDeviceCommand(command);
+      await publishQueuedDeviceCommand(command, generation);
     } catch (error) {
       log?.warn({ error, commandId: command.id }, 'Pending MQTT command publish failed');
     }
   }
 }
 
-async function publish(topic: string, payload: string, qos: 0 | 1): Promise<void> {
-  if (!client || !connected) {
-    throw new Error('MQTT gateway is not connected');
+async function publish(topic: string, payload: string, qos: 0 | 1, generation = inboundSession.getStore() ?? gatewaySession): Promise<void> {
+  const current = client;
+  if (!current || !connected || !devicePresence.isCurrentMqttSession(generation)) {
+    throw new Error('MQTT gateway session is not connected');
   }
   await new Promise<void>((resolve, reject) => {
-    client?.publish(topic, payload, { qos, retain: false }, (error) => {
+    current.publish(topic, payload, { qos, retain: false }, (error) => {
       if (error) {
         reject(error);
+      } else if (client !== current || !devicePresence.isCurrentMqttSession(generation)) {
+        reject(new Error('MQTT gateway session changed during publish'));
       } else {
         resolve();
       }

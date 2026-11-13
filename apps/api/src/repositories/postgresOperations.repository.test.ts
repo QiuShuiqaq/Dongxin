@@ -21,7 +21,8 @@ test('operations metrics aggregate the fleet and bounded recent terminal command
   assert.match(calls[0]!.sql, /protocol <> 'SIMULATOR'/);
   assert.deepEqual(calls[0]!.values, [new Date('2026-10-31T11:25:00.000Z')]);
   assert.match(calls[1]!.sql, /c\.status IN \('APPLIED', 'REJECTED', 'FAILED'\)/);
-  assert.match(calls[1]!.sql, /d\.protocol <> 'SIMULATOR' AND d\.model/);
+  assert.match(calls[1]!.sql, /d\.protocol <> 'SIMULATOR' AND \(/);
+  assert.match(calls[1]!.sql, /d\.id ~ '\^DX-PILOT-/);
   assert.deepEqual(calls[1]!.values, [new Date('2026-10-30T12:00:00.000Z')]);
 });
 

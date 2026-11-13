@@ -8,6 +8,7 @@
 #define DX_STM32_FRAME_SIZE 32U
 #define DX_STM32_PRODUCT_TYPE 0x07U
 #define DX_STM32_CI_EVENT_COMMAND 0xD0U
+#define DX_STM32_WIFI_SETUP_EVENT_COMMAND 0xD1U
 
 typedef enum {
     DX_STM32_CI_EVENT_NONE = 0,
@@ -53,6 +54,8 @@ typedef struct {
     uint8_t ci_event_type;
     uint8_t ci_semantic_id;
     uint8_t ci_event_sequence;
+    bool wifi_setup_requested;
+    uint8_t wifi_setup_sequence;
     uint8_t control_revision;
 } dx_stm32_status_t;
 

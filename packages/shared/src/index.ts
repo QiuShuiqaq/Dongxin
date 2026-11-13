@@ -564,7 +564,7 @@ export type BatchTestRun = z.infer<typeof BatchTestRunSchema>;
 export const DeviceProtocolSchema = z.enum(["SIMULATOR", "HTTP", "MQTT"]);
 export type DeviceProtocol = z.infer<typeof DeviceProtocolSchema>;
 
-export const DeviceStatusSchema = z.enum(["ONLINE", "OFFLINE", "FAULT"]);
+export const DeviceStatusSchema = z.enum(["ONLINE", "OFFLINE", "UNKNOWN", "FAULT"]);
 export type DeviceStatus = z.infer<typeof DeviceStatusSchema>;
 
 export const DeviceProfileSchema = z.object({
@@ -881,6 +881,7 @@ export const VoicePipelineRequestSchema = z
     simulateOffline: z.enum(["AUTO", "HIT", "MISS"]).default("MISS"),
     requireWakeWord: z.boolean().default(false),
     ciWakeAcknowledged: z.boolean().default(false),
+    ciWakeStart: z.boolean().default(false),
     deviceControlRevision: z.number().int().min(0).max(255).optional(),
     synthesizeSpeech: z.boolean().default(true),
     testMode: z.enum(["FULL_PIPELINE", "ASR_ONLY"]).default("FULL_PIPELINE"),
@@ -893,6 +894,13 @@ export const VoicePipelineRequestSchema = z
         code: z.ZodIssueCode.custom,
         path: ["text"],
         message: "text or audioBase64 is required",
+      });
+    }
+    if (value.ciWakeStart && (value.inputSource !== "DEVICE_AUDIO" || !value.ciWakeAcknowledged)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ciWakeStart"],
+        message: "a new CI conversation requires device audio and a CI wake",
       });
     }
   });

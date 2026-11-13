@@ -11,6 +11,7 @@ let publishAudioControl: (input: {
 }) => Promise<void> = async () => undefined;
 const playbackCompletions: boolean[] = [];
 let confirmationClears = 0;
+let llmRequest: unknown = null;
 const replace = (path: string, namedExports: Record<string, unknown>) =>
   mock.module(new URL(path, import.meta.url).href, { namedExports });
 replace("./deviceAudioAsset.service.js", {
@@ -43,7 +44,7 @@ replace("./speech.service.js", {
   }),
 });
 replace("./voicePipeline.service.js", {
-  runLlmModuleTest: async () => undefined,
+  runLlmModuleTest: async (input: unknown) => { llmRequest = input; return input; },
 });
 replace("./proactiveConfirmation.service.js", {
   clearProactiveConfirmation: () => {
@@ -58,11 +59,23 @@ replace("./proactiveConfirmation.service.js", {
   },
 });
 const {
+  testLlm,
   testTts,
   isDeviceAudioBusy,
   handleAudioTestDeviceStatus,
   stopAudioTest,
 } = await import("./voiceModuleTest.service.js");
+
+test('LLM-only test accepts bounded fixed context and strictly limited in-memory state patch', async () => {
+  await testLlm({ deviceId: 'DX-EVAL-TEST', text: '东信在哪儿',
+    knowledgeContext: '东信在嘉兴。', deviceStatePatch: { isOnline: true, faultCode: null } });
+  assert.deepEqual((llmRequest as { deviceStatePatch: unknown }).deviceStatePatch,
+    { isOnline: true, faultCode: null });
+  await assert.rejects(testLlm({ deviceId: 'DX-EVAL-TEST', text: '测试',
+    deviceStatePatch: { activeModes: ['HEAT_STRONG_ON'] } }));
+  await assert.rejects(testLlm({ deviceId: 'DX-EVAL-TEST', text: '测试',
+    knowledgeContext: 'x'.repeat(3001) }));
+});
 
 test("one device reserves audio before asynchronous validation and releases after completion", async () => {
   const deviceId = `audio-fixture-${randomUUID()}`;

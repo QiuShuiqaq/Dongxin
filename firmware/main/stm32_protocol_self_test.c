@@ -80,6 +80,25 @@ bool dx_stm32_protocol_self_test(void)
         return false;
     }
 
+    uint8_t wifi_setup_frame[DX_STM32_FRAME_SIZE];
+    memcpy(wifi_setup_frame, captured_status_frame, sizeof(wifi_setup_frame));
+    wifi_setup_frame[3] = DX_STM32_WIFI_SETUP_EVENT_COMMAND;
+    wifi_setup_frame[4] = 1U;
+    wifi_setup_frame[13] = 0xC3U;
+    wifi_setup_frame[14] = 1U;
+    wifi_setup_frame[16] = 9U;
+    wifi_setup_frame[29] = dx_stm32_frame_checksum(wifi_setup_frame);
+    if (!dx_stm32_decode_status_frame(wifi_setup_frame, sizeof(wifi_setup_frame), &status) ||
+        !status.wifi_setup_requested || status.wifi_setup_sequence != 9U) {
+        return false;
+    }
+    wifi_setup_frame[13] = 0U;
+    wifi_setup_frame[29] = dx_stm32_frame_checksum(wifi_setup_frame);
+    if (!dx_stm32_decode_status_frame(wifi_setup_frame, sizeof(wifi_setup_frame), &status) ||
+        status.wifi_setup_requested) {
+        return false;
+    }
+
     uint8_t damaged_frame[DX_STM32_FRAME_SIZE];
     memcpy(damaged_frame, captured_status_frame, sizeof(damaged_frame));
     damaged_frame[10] ^= 0x01U;

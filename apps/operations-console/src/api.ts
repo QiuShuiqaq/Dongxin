@@ -130,6 +130,17 @@ export async function getOperationsConsole(section = 'overview'): Promise<Operat
 }
 export const getOperationsDevicePage = (query: Record<string, string>) =>
   request<{ items: DeviceProfile[]; total: number; page: number }>(`/api/operations/devices?${new URLSearchParams(query)}`);
+export interface OperationsDeviceDetail {
+  device: DeviceProfile;
+  lastReport: Pick<DeviceEvent, 'createdAt' | 'payload'> | null;
+  recentEvents: DeviceEvent[];
+  recentCommands: DeviceCommandRecord[];
+}
+export const getOperationsDeviceDetail = (deviceId: string) =>
+  request<OperationsDeviceDetail>(`/api/operations/devices/${encodeURIComponent(deviceId)}`);
+export const updateOperationsDeviceProfile = (deviceId: string, input: { name?: string; notes?: string }) =>
+  request<OperationsDeviceDetail>(`/api/operations/devices/${encodeURIComponent(deviceId)}`,
+    { method: 'PATCH', body: JSON.stringify(input) });
 
 export async function createKnowledgeDocument(input: Omit<CreateKnowledgeDocumentRequest, 'status'>): Promise<KnowledgeDocument> {
   return request("/api/knowledge/documents", {

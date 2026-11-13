@@ -7,7 +7,7 @@ import {
   TestSetSchema
 } from '@dongxin/shared';
 import { z } from 'zod';
-import { readJsonFile, writeJsonFile } from '../storage.js';
+import { readJsonFile, updateJsonFile, writeJsonFile } from '../storage.js';
 
 export async function listProviders(): Promise<ModelProvider[]> {
   const providers = await readJsonFile<ModelProvider[]>('model-providers.json', []);
@@ -35,9 +35,12 @@ export async function listTestSets(): Promise<TestSet[]> {
   return z.array(TestSetSchema).parse(testSets);
 }
 
-export async function saveTestSets(testSets: TestSet[]): Promise<void> {
-  const parsed = z.array(TestSetSchema).parse(testSets);
-  await writeJsonFile('test-sets.json', parsed);
+export function updateTestSets<R>(update: (current: TestSet[]) => { value: TestSet[]; result: R }): Promise<R> {
+  return updateJsonFile<TestSet[], R>('test-sets.json', [], (stored) => {
+    const current = z.array(TestSetSchema).parse(stored);
+    const next = update(current);
+    return { value: z.array(TestSetSchema).parse(next.value), result: next.result };
+  });
 }
 
 export async function listEvaluations(): Promise<EvaluationRun[]> {

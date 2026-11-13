@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Pool } from 'pg';
-import { findPostgresDevice, listPostgresDevices, pagePostgresDevices, registerPostgresDevice, touchPostgresDevice, upsertPostgresDevice } from './postgresDevices.repository.js';
+import { findPostgresDevice, listPostgresDevices, operationalDeviceFilter, pagePostgresDevices, registerPostgresDevice, touchPostgresDevice, upsertPostgresDevice } from './postgresDevices.repository.js';
 
 const now = new Date('2026-10-30T12:00:00.000Z');
 const row = { id: 'dx-1', model: 'DX-AI-01', name: '样机', firmware_version: '1.0',
@@ -59,6 +59,17 @@ test('operations device page uses SQL filtering and does not load the full fleet
   assert.equal(result.items.length, 1);
   assert.deepEqual(calls[1]?.values, ['ONLINE', 'dx\\_', 20, 20]);
   assert.match(calls[1]!.sql, /LIMIT \$3 OFFSET \$4/);
+  assert.ok(calls[0]!.sql.includes(operationalDeviceFilter()));
+  assert.ok(calls[1]!.sql.includes(operationalDeviceFilter()));
+});
+
+test('operations SQL includes provisioned Lichuang MQTT pilots but not general development boards', () => {
+  const filter = operationalDeviceFilter('d.');
+  assert.match(filter, /d\.protocol <> 'SIMULATOR'/);
+  assert.match(filter, /d\.model !~\* '\(SIMULATOR\|SUPERMINI\|LICHUANG\|DEVKIT\)'/);
+  assert.match(filter, /d\.protocol = 'MQTT' AND d\.model ~\* 'LICHUANG'/);
+  assert.match(filter, /d\.model !~\* '\(SIMULATOR\|SUPERMINI\|DEVKIT\)'/);
+  assert.match(filter, /d\.id ~ '\^DX-PILOT-/);
 });
 
 function registrationPool(responses: Array<unknown[]>, failEvent = false) {

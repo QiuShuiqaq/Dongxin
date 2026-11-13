@@ -2,8 +2,10 @@ import type {
   DeviceCommandRecord,
   DeviceEvent,
   DeviceExecutionTrace,
+  DeviceProfile,
   ExecutionTraceStage,
 } from "@dongxin/shared";
+import { ApiError } from '../http/apiError.js';
 import { getMqttGatewayStatus } from "./mqttGateway.service.js";
 import { listKnowledgeDocuments } from "./knowledge.service.js";
 import { listProviders } from "./provider.service.js";
@@ -11,6 +13,7 @@ import { getProactiveSettings } from "./proactive.service.js";
 import { getOperationsAuthStatus } from "./operationsAuth.service.js";
 import { getRuntimeStatus } from '../runtime/status.js';
 import { PILOT_DEVICE_LIMIT } from '../runtime/pilotLimits.js';
+import { isOperationalDevice } from '../runtime/operationsDeviceVisibility.js';
 import {
   listBoardProfiles,
   listProductProfiles,
@@ -21,6 +24,8 @@ import {
   listDeviceEvents,
   listDeviceProfiles,
   listSystemLogs,
+  appendSystemLog,
+  updateDeviceProfiles,
 } from "../repositories/system.repository.js";
 
 export async function getDevelopmentConsoleData() {
@@ -137,7 +142,7 @@ export async function getOperationsConsoleData(section = 'all') {
   return {
     environment: process.env.NODE_ENV === 'production' ? 'BOUNDED_HARDWARE_PILOT' : 'LOCAL_PREPRODUCTION',
     runtime: ['system', 'all'].includes(section) ? getRuntimeStatus() : undefined,
-    devices: section === 'all' ? operationalDevices : section === 'overview' ? operationalDevices.slice(0, 8) : [],
+    devices: section === 'all' || section === 'ai' ? operationalDevices.slice(0, 100) : section === 'overview' ? operationalDevices.slice(0, 8) : [],
     recentCommands: ['all', 'overview', 'records'].includes(section) ? [...operationalCommands].reverse().slice(0, section === 'overview' ? 10 : 100) : [],
     recentEvents: ['all', 'overview', 'devices', 'records'].includes(section) ? recentEvents : [],
     alerts: ['all', 'records'].includes(section) ? faultEvents : [],
@@ -187,15 +192,47 @@ export async function getOperationsDevicePage(query: { page: number; pageSize: n
   return { items: devices.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), total: devices.length, page: query.page };
 }
 
-function isOperationalDevice(device: {
-  protocol: string;
-  model: string;
-}): boolean {
-  if (device.protocol === "SIMULATOR") return false;
-  const model = device.model.toUpperCase();
-  return !["SIMULATOR", "SUPERMINI", "LICHUANG", "DEVKIT"].some((marker) =>
-    model.includes(marker),
-  );
+export interface OperationsDeviceDetail {
+  device: DeviceProfile;
+  lastReport: Pick<DeviceEvent, 'createdAt' | 'payload'> | null;
+  recentEvents: DeviceEvent[];
+  recentCommands: DeviceCommandRecord[];
+}
+
+export async function getOperationsDeviceDetail(deviceId: string): Promise<OperationsDeviceDetail> {
+  const [devices, events, commands] = await Promise.all([
+    listDeviceProfiles(), listDeviceEvents(), listDeviceCommands(),
+  ]);
+  const device = devices.find((item) => item.id === deviceId && isOperationalDevice(item));
+  if (!device) throw new ApiError(404, 'DEVICE_NOT_FOUND', '设备不存在');
+  const deviceEvents = events.filter((item) => item.deviceId === deviceId).reverse();
+  const recentEvents = deviceEvents.slice(0, 20);
+  const recentCommands = commands.filter((item) => item.deviceId === deviceId).reverse().slice(0, 20);
+  const report = deviceEvents.find((item) => item.type === 'STATE_REPORT' && item.payload.event !== 'REGISTER');
+  return { device, lastReport: report ? { createdAt: report.createdAt, payload: report.payload } : null,
+    recentEvents, recentCommands };
+}
+
+export async function updateOperationsDeviceProfile(
+  deviceId: string,
+  input: { name?: string; notes?: string },
+  actor: string,
+): Promise<OperationsDeviceDetail> {
+  await updateDeviceProfiles(async (devices) => {
+    const index = devices.findIndex((device) => device.id === deviceId && isOperationalDevice(device));
+    if (index < 0) throw new ApiError(404, 'DEVICE_NOT_FOUND', '设备不存在');
+    const current = devices[index]!;
+    const next = { ...current, name: input.name ?? current.name, notes: input.notes ?? current.notes };
+    const changed = (['name', 'notes'] as const).filter((field) => next[field] !== current[field]);
+    if (!changed.length) return devices;
+    next.updatedAt = new Date().toISOString();
+    const updated = [...devices];
+    updated[index] = next;
+    await appendSystemLog({ type: 'DEVICE', summary: `提交设备档案编辑：${deviceId}`,
+      payload: { deviceId, actor, fields: changed, status: 'ATTEMPTED' } });
+    return updated;
+  });
+  return getOperationsDeviceDetail(deviceId);
 }
 
 function buildExecutionTraces(

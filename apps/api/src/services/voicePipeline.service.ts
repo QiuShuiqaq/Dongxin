@@ -13,6 +13,7 @@ import type {
   VoicePipelineStage,
 } from "@dongxin/shared";
 import {
+  DeviceStateSchema,
   VoicePipelineBatchRequestSchema,
   VoicePipelineBatchRunSchema,
   VoicePipelineRequestSchema,
@@ -62,17 +63,24 @@ export async function runLlmModuleTest(input: {
   llmTemperature?: number;
   llmMaxOutputTokens?: number;
   llmHistoryTurns?: number;
+  knowledgeContext?: string;
+  deviceStatePatch?: Partial<Pick<DeviceState, 'isOnline' | 'faultCode'>>;
 }) {
   return runVoiceWork(input.deviceId, () => voiceConversations.run({ deviceId: input.deviceId, channel: 'llm-test' }, input, async (context) => {
-    const deviceState = await getDeviceState(input.deviceId);
+    const currentState = await getDeviceState(input.deviceId);
+    const deviceState = DeviceStateSchema.parse({ ...currentState, ...input.deviceStatePatch });
     const result = await resolveByLlm(input.text.trim(), deviceState, input.providerId, input.promptId,
       input.llmHistoryTurns === undefined ? context.messages : input.llmHistoryTurns === 0 ? [] : context.messages.slice(-input.llmHistoryTurns * 2),
-      undefined, input.llmTemperature, input.llmMaxOutputTokens);
+      input.knowledgeContext, input.llmTemperature, input.llmMaxOutputTokens);
     const value = {
       conversationId: context.id,
       inputText: input.text.trim(),
       providerId: result.providerId,
+      promptId: result.promptId,
+      promptVersion: result.promptVersion,
       aiResult: result.aiResult,
+      rawResponse: result.rawResponse,
+      evaluatedDeviceState: deviceState,
       safetyResult: applySafetyRules(result.aiResult, deviceState),
       latencyMs: result.latencyMs,
       usage: result.usage,
@@ -122,6 +130,7 @@ export async function runVoicePipeline(
 const initialRevisions = new WeakMap<VoicePipelineRequest, number>();
 async function runAdmittedPipeline(body: VoicePipelineRequest): Promise<VoicePipelineResponse> {
   if (body.testMode === 'ASR_ONLY') return executeVoicePipeline(body, []);
+  if (body.ciWakeStart) voiceConversations.reset({ deviceId: body.deviceId, channel: 'pipeline' });
   return voiceConversations.run(
     { deviceId: body.deviceId, channel: 'pipeline' },
     { conversationId: body.conversationId, resumeLatest: body.inputSource.startsWith('DEVICE') },
@@ -1055,7 +1064,10 @@ async function resolveByLlm(
   if (!provider) {
     return {
       providerId: null,
+      promptId: prompt.id,
+      promptVersion: prompt.version,
       aiResult: chat("当前没有可用的大模型，请先配置模型供应商。"),
+      rawResponse: null,
       latencyMs: 0,
       usage: emptyUsage(),
       error: "No model provider configured",
@@ -1075,7 +1087,10 @@ async function resolveByLlm(
     });
     return {
       providerId: provider.id,
+      promptId: prompt.id,
+      promptVersion: prompt.version,
       aiResult: modelOutput.aiResult,
+      rawResponse: modelOutput.rawResponse,
       latencyMs: modelOutput.latencyMs,
       usage: modelOutput.usage,
       error: null,
@@ -1083,7 +1098,10 @@ async function resolveByLlm(
   } catch (error) {
     return {
       providerId: provider.id,
+      promptId: prompt.id,
+      promptVersion: prompt.version,
       aiResult: chat("当前大模型暂时不可用，请稍后再试。"),
+      rawResponse: null,
       latencyMs: 0,
       usage: emptyUsage(),
       error: error instanceof Error ? error.message : String(error),

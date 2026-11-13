@@ -32,7 +32,9 @@ export async function saveDevices(devices: DeviceProfile[]): Promise<DeviceProfi
 }
 
 export async function getDeviceState(deviceId: string): Promise<DeviceState> {
-  return getCurrentDeviceState(deviceId);
+  const [device, state] = await Promise.all([getDevice(deviceId), getCurrentDeviceState(deviceId)]);
+  if (device.protocol === 'SIMULATOR') return state;
+  return { ...state, isOnline: device.status === 'ONLINE' || device.status === 'FAULT' };
 }
 
 export async function recordDeviceEvent(requestBody: unknown): Promise<DeviceEvent> {

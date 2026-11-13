@@ -20,6 +20,11 @@ const LlmTestSchema = z.object({
   llmTemperature: z.number().min(0).max(1).optional(),
   llmMaxOutputTokens: z.number().int().min(256).max(2048).optional(),
   llmHistoryTurns: z.number().int().min(0).max(12).optional(),
+  knowledgeContext: z.string().trim().min(1).max(3000).optional(),
+  deviceStatePatch: z.object({
+    isOnline: z.boolean().optional(),
+    faultCode: z.string().trim().min(1).max(40).nullable().optional(),
+  }).strict().optional(),
 });
 const TtsTestSchema = z.object({
   deviceId: z.string().min(1).optional(),

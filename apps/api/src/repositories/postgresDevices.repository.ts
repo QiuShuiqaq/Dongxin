@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { DeviceProfile, DeviceRegisterRequest } from '@dongxin/shared';
 import { DeviceProfileSchema, DeviceRegisterRequestSchema } from '@dongxin/shared';
 import type { Pool, PoolClient } from 'pg';
+import { DEVELOPMENT_MODEL_PATTERN, OPERATIONAL_PILOT_ID_PATTERN } from '../runtime/operationsDeviceVisibility.js';
 
 type DeviceRow = { id: string; model: string; name: string; firmware_version: string | null;
   protocol: string; capabilities: Record<string, boolean>; status: string; notes: string;
@@ -9,7 +10,12 @@ type DeviceRow = { id: string; model: string; name: string; firmware_version: st
 
 const columns = 'id, model, name, firmware_version, protocol, capabilities, status, notes, created_at, updated_at';
 export function operationalDeviceFilter(alias = ''): string {
-  return `${alias}protocol <> 'SIMULATOR' AND ${alias}model !~* '(SIMULATOR|SUPERMINI|LICHUANG|DEVKIT)'`;
+  return `${alias}protocol <> 'SIMULATOR' AND (
+    ${alias}model !~* '${DEVELOPMENT_MODEL_PATTERN}'
+    OR (${alias}protocol = 'MQTT' AND ${alias}model ~* 'LICHUANG'
+      AND ${alias}model !~* '(SIMULATOR|SUPERMINI|DEVKIT)'
+      AND ${alias}id ~ '${OPERATIONAL_PILOT_ID_PATTERN}')
+  )`;
 }
 
 function fromRow(row: DeviceRow): DeviceProfile {

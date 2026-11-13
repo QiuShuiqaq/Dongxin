@@ -19,4 +19,13 @@ config DX_CLOUD_PILOT
         must not be committed. This is for a single device pilot only; mass
         production requires a separate per-unit provisioning process.
 
+config DX_WIFI_PROVISIONING
+    bool "Enable local Wi-Fi setup portal"
+    default n
+    help
+        Enable a time-limited, password-protected SoftAP setup page. The
+        device needs a unique DX_WIFI_SETUP_PASSWORD in its private header.
+        Current cloud pilot builds keep this disabled until the setup entry
+        and per-device label are verified.
+
 endmenu

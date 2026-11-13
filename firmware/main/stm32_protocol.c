@@ -94,6 +94,12 @@ bool dx_stm32_decode_status_frame(
         out_status->ci_semantic_id = frame[15];
         out_status->ci_event_sequence = frame[16];
     }
+    if (frame[FRAME_COMMAND] == DX_STM32_WIFI_SETUP_EVENT_COMMAND &&
+        frame[FRAME_VALUE] == 1U && frame[13] == 0xC3U && frame[14] == 1U &&
+        frame[15] == 0U && frame[16] != 0U) {
+        out_status->wifi_setup_requested = true;
+        out_status->wifi_setup_sequence = frame[16];
+    }
     return true;
 }
 

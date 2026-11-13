@@ -55,12 +55,25 @@
 #define DX_DEVICE_MODEL "DX-AI-BATH-C3-SUPERMINI"
 #endif
 
+#if defined(CONFIG_DX_WIFI_PROVISIONING) && CONFIG_DX_WIFI_PROVISIONING
+#ifndef DX_WIFI_SETUP_PASSWORD
+#error "Wi-Fi provisioning requires a unique private DX_WIFI_SETUP_PASSWORD"
+#endif
+_Static_assert(sizeof(DX_WIFI_SETUP_PASSWORD) >= 13 &&
+               sizeof(DX_WIFI_SETUP_PASSWORD) <= 64,
+               "Wi-Fi setup password must contain 12-63 ASCII characters");
+#endif
+
 #define DX_FIRMWARE_VERSION "1.1.0-online-voice"
 #define DX_PROTOCOL_VERSION "1.0"
 
 /* Feature switches for the staged board bring-up. */
 #define DX_ENABLE_WIFI 1
+#if defined(CONFIG_DX_CLOUD_PILOT) && CONFIG_DX_CLOUD_PILOT
+#define DX_ENABLE_CLOUD 1
+#else
 #define DX_ENABLE_CLOUD 0
+#endif
 #define DX_ENABLE_MQTT 1
 /* Retired V0.2 simulator protocol. It is incompatible with the current STM32
  * sample and must remain disabled. A reviewed adapter will replace it. */
@@ -166,6 +179,7 @@
 #define DX_VOICE_PCM_CI_WAKE_FALLBACK_URL \
     DX_GATEWAY_BASE_URL "/api/device/v1/voice-pcm?deviceId=" DX_DEVICE_ID \
     "&sampleRate=16000&bitsPerSample=16&channels=1&requireWakeWord=0&synthesizeSpeech=1&testMode=FULL_PIPELINE&ciWake=1"
+#define DX_VOICE_PCM_CI_WAKE_START_URL DX_VOICE_PCM_CI_WAKE_FALLBACK_URL "&ciWakeStart=1"
 
 /* Retired V0.2 MCU simulator protocol. Do not use these pins with the STM32
  * sample; its real protocol will be implemented in a separate adapter. */
@@ -190,10 +204,20 @@
 #define DX_SAMPLE_UART_RX_GPIO 19
 #define DX_SAMPLE_UART_BAUD_RATE 115200
 #define DX_ENABLE_STM32_PROTOCOL_SELF_TEST 1
-#if DX_TARGET_BOARD == DX_BOARD_C3_LICHUANG_AUDIO
+#if defined(CONFIG_DX_CLOUD_PILOT) && CONFIG_DX_CLOUD_PILOT
+#define DX_STM32_CONTROL_STAGE 0
+#elif DX_TARGET_BOARD == DX_BOARD_C3_LICHUANG_AUDIO
 #define DX_STM32_CONTROL_STAGE 3
 #else
 #define DX_STM32_CONTROL_STAGE 0
+#endif
+#if defined(CONFIG_DX_CLOUD_PILOT) && CONFIG_DX_CLOUD_PILOT && DX_STM32_CONTROL_STAGE != 0
+#error "Cloud pilot must keep STM32 control receive-only"
+#endif
+#if defined(CONFIG_DX_CLOUD_PILOT) && CONFIG_DX_CLOUD_PILOT && \
+    (DX_ENABLE_CLOUD != 1 || DX_ENABLE_SAMPLE_UART_MONITOR != 1 || \
+     DX_ENABLE_UART_BRIDGE != 0 || DX_ENABLE_PCF8574 != 0)
+#error "Cloud pilot must enable telemetry without another physical control backend"
 #endif
 #define DX_STM32_ACK_TIMEOUT_MS 2000
 

@@ -50,6 +50,7 @@ export const DevicePcmQuerySchema = z.object({
   ttsProviderId: z.string().min(1).optional(),
   requireWakeWord: z.enum(['0', '1']).default('1').transform((value) => value === '1'),
   ciWake: z.enum(['0', '1']).default('0').transform((value) => value === '1'),
+  ciWakeStart: z.enum(['0', '1']).default('0').transform((value) => value === '1'),
   synthesizeSpeech: z.enum(['0', '1']).default('0').transform((value) => value === '1'),
   testMode: z.enum(['FULL_PIPELINE', 'ASR_ONLY']).default('FULL_PIPELINE')
 });
@@ -127,6 +128,7 @@ export async function registerDeviceAccessRoutes(server: FastifyInstance): Promi
         llmHistoryTurns: testSession?.settings.llmHistoryTurns,
         requireWakeWord: query.requireWakeWord,
         ciWakeAcknowledged: query.ciWake,
+        ciWakeStart: query.ciWakeStart,
         deviceControlRevision,
         synthesizeSpeech: query.synthesizeSpeech,
         testMode: query.testMode,

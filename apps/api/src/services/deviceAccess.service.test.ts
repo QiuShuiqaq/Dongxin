@@ -106,6 +106,16 @@ test('repeated online registration does not append an event for every reconnect'
   assert.equal(persistedEvents, 2);
 });
 
+test('device registration retains operator notes across reconnects', async () => {
+  registeredProfiles[0] = { ...registeredProfiles[0]!, notes: 'Installation location: bathroom A', firmwareVersion: '1.2.3' };
+  await registerDeviceAccess({ deviceId: id, model: 'fixture', capabilities: {} });
+  assert.equal(registeredProfiles[0]?.notes, 'Installation location: bathroom A');
+  assert.equal(registeredProfiles[0]?.firmwareVersion, '1.2.3');
+  registeredProfiles = [];
+  await registerDeviceAccess({ deviceId: id, model: 'fixture', capabilities: {} });
+  assert.match(registeredProfiles[0]?.notes ?? '', /protocol=/);
+});
+
 test('a provisioned device cannot self-report a different model on first registration', async () => {
   registeredProfiles = [];
   provisionedModel = 'DX-PROVISIONED';

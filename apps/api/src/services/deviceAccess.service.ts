@@ -55,6 +55,7 @@ import { bumpDeviceControlRevision, getDeviceControlRevision, getDeviceState as 
 import { voiceCommandGuard, isCommandCurrent, isCommandRevisionCurrent, commandExpiresAt, assertVoiceRevision } from '../runtime/commandGuard.js';
 import { RequestReplay } from '../runtime/requestReplay.js';
 import { cloudStateToDeviceStatePatch, deviceStateChanged } from '../runtime/deviceCloudState.js';
+import { devicePresence } from '../runtime/devicePresence.js';
 import {
   appendProductionVoiceHistory,
   type ProductionVoiceHistoryInput,
@@ -85,6 +86,7 @@ export interface DeviceVoiceTurnData {
 }
 
 export async function registerDeviceAccess(requestBody: unknown, transport: 'HTTP' | 'MQTT' = 'HTTP') {
+  const receivedAt = performance.now();
   const body = DeviceRegisterRequestSchema.parse(requestBody);
   const provisionedModel = await getProvisionedDeviceModel(body.deviceId);
   if (provisionedModel && provisionedModel !== body.model) {
@@ -102,11 +104,11 @@ export async function registerDeviceAccess(requestBody: unknown, transport: 'HTT
     id: body.deviceId,
     name: existing?.name ?? `东信浴霸 ${body.deviceId}`,
     model: body.model,
-    firmwareVersion: body.firmwareVersion ?? null,
+    firmwareVersion: body.firmwareVersion ?? existing?.firmwareVersion ?? null,
     capabilities: body.capabilities,
     protocol: transport,
     status: 'ONLINE',
-    notes: `protocol=${body.protocolVersion}; capabilities=${Object.entries(body.capabilities)
+    notes: existing?.notes ?? `protocol=${body.protocolVersion}; capabilities=${Object.entries(body.capabilities)
       .filter(([, enabled]) => enabled)
       .map(([capability]) => capability)
       .join(',')}`,
@@ -130,6 +132,8 @@ export async function registerDeviceAccess(requestBody: unknown, transport: 'HTT
     }
   });
 
+  if (transport === 'HTTP') devicePresence.observeHttp(body.deviceId, 'ONLINE', receivedAt);
+
   return {
     deviceId: body.deviceId,
     pollIntervalSeconds: 3,
@@ -138,13 +142,15 @@ export async function registerDeviceAccess(requestBody: unknown, transport: 'HTT
   };
 }
 
-export async function handleDeviceHeartbeat(requestBody: unknown) {
+export async function handleDeviceHeartbeat(requestBody: unknown, transport: 'HTTP' | 'MQTT' = 'HTTP') {
+  const receivedAt = performance.now();
   const body = DeviceHeartbeatRequestSchema.parse(requestBody);
   await ensureDevice(body.deviceId);
   await patchDeviceProfile(body.deviceId, {
     firmwareVersion: body.firmwareVersion ?? undefined,
     status: 'ONLINE'
   });
+  if (transport === 'HTTP') devicePresence.observeHttp(body.deviceId, 'ONLINE', receivedAt);
 
   return {
     isRegistered: true,
@@ -163,7 +169,8 @@ export async function getDeviceAccessConfig(deviceId: string) {
   };
 }
 
-export async function handleDeviceStateReport(requestBody: unknown) {
+export async function handleDeviceStateReport(requestBody: unknown, transport: 'HTTP' | 'MQTT' = 'HTTP') {
+  const receivedAt = performance.now();
   const body = DeviceStateReportRequestSchema.parse(requestBody);
   await ensureDevice(body.deviceId);
   if (typeof body.state.isOnline === 'boolean') {
@@ -183,6 +190,8 @@ export async function handleDeviceStateReport(requestBody: unknown) {
       }
     });
   }
+
+  if (transport === 'HTTP') devicePresence.observeHttp(body.deviceId, body.state.isOnline === false ? 'OFFLINE' : 'ONLINE', receivedAt);
 
   return {
     accepted: true,

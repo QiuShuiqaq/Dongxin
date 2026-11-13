@@ -24,10 +24,17 @@ const operationsSections = [
   ["ai", "AI 运营"],
   ["system", "系统状态"],
 ];
+const labSections = [
+  ["scenarios", "场景模拟"],
+  ["ai", "对话验证"],
+  ["speech", "语音模块"],
+  ["sets", "测试集"],
+];
 
 try {
   await verifyDevelopmentDesktop();
   await verifyOperationsDesktop();
+  await verifyLabDesktop();
   await verifyMobileConsole({
     baseUrl: "http://127.0.0.1:3010/",
     sections: developmentSections,
@@ -44,6 +51,14 @@ try {
     captureSection: "overview",
     screenshot: ".artifacts/operations-overview-mobile.png",
   });
+  await verifyMobileConsole({
+    baseUrl: "http://127.0.0.1:3020/lab.html",
+    sections: labSections,
+    navSelector: ".lab-sidebar nav button",
+    label: "云端研发工作台移动端",
+    captureSection: "scenarios",
+    screenshot: ".artifacts/lab-scenarios-mobile.png",
+  });
 } finally {
   await browser.close();
 }
@@ -52,7 +67,7 @@ if (failures.length) {
   console.error(failures.map((item) => `- ${item}`).join("\n"));
   process.exit(1);
 }
-console.log("[console-smoke] development and operations consoles passed");
+console.log("[console-smoke] development, operations and cloud lab consoles passed");
 
 async function verifyDevelopmentDesktop() {
   const context = await browser.newContext({
@@ -88,6 +103,7 @@ async function verifyDevelopmentDesktop() {
     device.model.includes("LICHUANG-AUDIO"),
   );
   const capabilities = sampleDevice?.capabilities || {};
+  const sampleOnline = sampleDevice?.status === "ONLINE";
   const enabledCommands = await page
     .locator(".command-group button:enabled")
     .count();
@@ -96,12 +112,12 @@ async function verifyDevelopmentDesktop() {
       `研发中心/样机联调：只读固件仍有${enabledCommands}个控制按钮可用`,
     );
   }
-  await assertCommandGate(page, "照明", capabilities.stm32LightControl);
-  await assertCommandGate(page, "风路", capabilities.stm32AirControl);
+  await assertCommandGate(page, "照明", sampleOnline && capabilities.stm32LightControl);
+  await assertCommandGate(page, "风路", sampleOnline && capabilities.stm32AirControl);
   await assertDangerousCommandGate(
     page,
     ["弱暖", "强暖"],
-    capabilities.stm32HeaterControl,
+    sampleOnline && capabilities.stm32HeaterControl,
   );
   const constantTemperatureEnabled = await page
     .locator(".command-group button", { hasText: "恒温（待协议支持）" })
@@ -109,7 +125,7 @@ async function verifyDevelopmentDesktop() {
   if (constantTemperatureEnabled) {
     failures.push("研发中心/样机联调：样机协议不支持恒温，但按钮处于可用状态");
   }
-  if (capabilities.stm32HeaterControl) {
+  if (sampleOnline && capabilities.stm32HeaterControl && await page.locator(".command-group button", { hasText: "弱暖" }).isEnabled()) {
     const commandsBefore = await page.request.get(
       `http://127.0.0.1:3077/api/devices/${sampleDevice.id}/commands`,
     );
@@ -247,13 +263,6 @@ async function verifyOperationsDesktop() {
   await page.locator('.ant-segmented-item', { hasText: '运行策略' }).click();
   await page.getByText("安静时段", { exact: true }).first().waitFor();
   await page.getByLabel("安静时段开始").waitFor();
-  await page.locator('.ant-segmented-item', { hasText: 'AI 验证' }).click();
-  await page.getByLabel('单条测试语料').waitFor();
-  if (await page.getByRole('button', { name: '运行验证' }).isEnabled()) {
-    failures.push('运营平台/AI 验证：空语料时仍能发起付费模型调用');
-  }
-  await page.locator('.ant-segmented-item', { hasText: '批量与报告' }).click();
-  await page.getByRole('heading', { name: '批量任务记录' }).waitFor();
   await page.locator('.ant-segmented-item', { hasText: '运行策略' }).click();
   await assertNoPageOverflow(page, "运营平台/主动沟通设置");
   await page.screenshot({ path: ".artifacts/operations-ai-desktop.png", fullPage: true });
@@ -272,6 +281,34 @@ async function verifyOperationsDesktop() {
     path: ".artifacts/operations-overview-desktop.png",
     fullPage: true,
   });
+  await context.close();
+}
+
+async function verifyLabDesktop() {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'zh-CN' });
+  const page = await context.newPage();
+  page.setDefaultTimeout(10000);
+  monitor(page, '云端研发工作台');
+  await page.goto('http://127.0.0.1:3020/lab.html#scenarios', { waitUntil: 'networkidle' });
+  await page.getByRole('heading', { name: '场景模拟', exact: true }).waitFor();
+  await page.getByRole('heading', { name: '断网 · 固定命令' }).waitFor();
+  await page.getByRole('button', { name: '运行模拟' }).click();
+  await page.getByText('未发送 MQTT').waitFor();
+  await assertNoPageOverflow(page, '云端研发工作台/场景模拟');
+  await page.screenshot({ path: '.artifacts/lab-scenarios-desktop.png', fullPage: true });
+  await page.locator('.lab-sidebar nav button', { hasText: '对话验证' }).click();
+  await page.getByLabel('单条测试语料').waitFor();
+  if (await page.getByRole('button', { name: '运行验证' }).isEnabled()) {
+    failures.push('云端研发工作台/对话验证：空语料时仍能发起付费模型调用');
+  }
+  await assertNoPageOverflow(page, '云端研发工作台/对话验证');
+  await page.locator('.lab-sidebar nav button', { hasText: '语音模块' }).click();
+  await page.getByLabel('ASR 测试音频').waitFor();
+  await page.getByLabel('TTS 合成文本').waitFor();
+  await assertNoPageOverflow(page, '云端研发工作台/语音模块');
+  await page.locator('.lab-sidebar nav button', { hasText: '测试集' }).click();
+  await page.getByRole('button', { name: '新建测试集' }).waitFor();
+  await assertNoPageOverflow(page, '云端研发工作台/测试集');
   await context.close();
 }
 

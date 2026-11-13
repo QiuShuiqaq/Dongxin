@@ -8,7 +8,11 @@
 #define DX_DEVICE_ID "REPLACE_WITH_UNIQUE_DEVICE_ID"
 #define DX_DEVICE_MODEL "DX-AI-BATH-C3-LICHUANG-AUDIO"
 #define DX_WIFI_SSID "REPLACE_WITH_WIFI_SSID"
+/* The pilot's verified open AP TP-LINK_3DB722 may use "". Other SSIDs require a password. */
 #define DX_WIFI_PASSWORD "REPLACE_WITH_WIFI_PASSWORD"
+/* Required only when CONFIG_DX_WIFI_PROVISIONING=y. Print this separate,
+ * unique setup password on the device's private setup label. */
+/* #define DX_WIFI_SETUP_PASSWORD "REPLACE_WITH_UNIQUE_SETUP_PASSWORD" */
 #define DX_GATEWAY_BASE_URL "https://api.zjdongxin.net"
 #define DX_MQTT_BROKER_URI "mqtts://api.zjdongxin.net:8883"
 #define DX_MQTT_DEVICE_SECRET "REPLACE_WITH_UNIQUE_MQTT_SECRET"

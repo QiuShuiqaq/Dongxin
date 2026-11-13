@@ -51,7 +51,6 @@ export async function getTestSet(testSetId: string): Promise<TestSet> {
 export async function createTestSet(requestBody: unknown): Promise<TestSet> {
   const body = parseCreateRequest(requestBody);
   const now = new Date().toISOString();
-  const managedTestSets = await labDataRepository.listTestSets();
   const testSet = buildTestSetRecord({
     id: buildTestSetId(body.name),
     name: body.name,
@@ -64,8 +63,9 @@ export async function createTestSet(requestBody: unknown): Promise<TestSet> {
     cases: [],
   });
 
-  await labDataRepository.saveTestSets([...managedTestSets, testSet]);
-  return testSet;
+  return labDataRepository.updateTestSets((managedTestSets) => ({
+    value: [...managedTestSets, testSet], result: testSet,
+  }));
 }
 
 export async function importTestSetMarkdown(
@@ -82,7 +82,6 @@ export async function importTestSetMarkdown(
   }
 
   const now = new Date().toISOString();
-  const managedTestSets = await labDataRepository.listTestSets();
   const testSet = buildTestSetRecord({
     id: buildTestSetId(body.name),
     name: body.name,
@@ -95,8 +94,9 @@ export async function importTestSetMarkdown(
     cases,
   });
 
-  await labDataRepository.saveTestSets([...managedTestSets, testSet]);
-  return testSet;
+  return labDataRepository.updateTestSets((managedTestSets) => ({
+    value: [...managedTestSets, testSet], result: testSet,
+  }));
 }
 
 export async function updateTestSet(
@@ -112,28 +112,12 @@ export async function updateTestSet(
   }
 
   const body = parseUpdateRequest(requestBody);
-  const managedTestSets = await labDataRepository.listTestSets();
-  const index = managedTestSets.findIndex((item) => item.id === testSetId);
-  if (index < 0) {
-    throw new ApiError(
-      404,
-      "TEST_SET_NOT_FOUND",
-      `Unknown test set: ${testSetId}`,
-    );
-  }
-
-  const current = managedTestSets[index];
-  const updated: TestSet = buildTestSetRecord({
+  return updateManagedTestSet(testSetId, (current) => buildTestSetRecord({
     ...current,
     name: body.name ?? current.name,
     description: body.description ?? current.description,
     updatedAt: new Date().toISOString(),
-  });
-
-  const nextTestSets = [...managedTestSets];
-  nextTestSets[index] = updated;
-  await labDataRepository.saveTestSets(nextTestSets);
-  return updated;
+  }));
 }
 
 export async function deleteTestSet(testSetId: string): Promise<void> {
@@ -145,17 +129,10 @@ export async function deleteTestSet(testSetId: string): Promise<void> {
     );
   }
 
-  const managedTestSets = await labDataRepository.listTestSets();
-  const nextTestSets = managedTestSets.filter((item) => item.id !== testSetId);
-  if (nextTestSets.length === managedTestSets.length) {
-    throw new ApiError(
-      404,
-      "TEST_SET_NOT_FOUND",
-      `Unknown test set: ${testSetId}`,
-    );
-  }
-
-  await labDataRepository.saveTestSets(nextTestSets);
+  await labDataRepository.updateTestSets((managedTestSets) => {
+    const index = writableManagedTestSetIndex(managedTestSets, testSetId);
+    return { value: managedTestSets.filter((_, itemIndex) => itemIndex !== index), result: undefined };
+  });
 }
 
 export async function addTestCaseToSet(
@@ -163,40 +140,31 @@ export async function addTestCaseToSet(
   requestBody: unknown,
 ): Promise<TestSet> {
   const body = CreateTestCaseRequestSchema.parse(requestBody);
-  const { managedTestSets, index } = await getWritableManagedTestSet(testSetId);
-  const current = managedTestSets[index];
-  const testCase = normalizeTestCase({
-    id: body.id?.trim() || buildTestCaseId(body.category, current.cases.length),
-    category: body.category,
-    inputText: body.inputText,
-    expectedIntent: body.expectedIntent,
-    expectedResultType: body.expectedResultType ?? null,
-    expectedSlots: body.expectedSlots ?? {},
-    expectedSafetyDecision: body.expectedSafetyDecision ?? null,
-    requiredKeywords: body.requiredKeywords ?? [],
-    forbiddenKeywords: body.forbiddenKeywords ?? [],
-    allowDeviceAction: body.allowDeviceAction ?? null,
-    riskLevel: body.riskLevel,
-    notes: body.notes,
-  });
+  return updateManagedTestSet(testSetId, (current) => {
+    const testCase = normalizeTestCase({
+      id: body.id?.trim() || buildTestCaseId(body.category, current.cases.length),
+      category: body.category,
+      inputText: body.inputText,
+      expectedIntent: body.expectedIntent,
+      expectedResultType: body.expectedResultType ?? null,
+      expectedSlots: body.expectedSlots ?? {},
+      expectedSafetyDecision: body.expectedSafetyDecision ?? null,
+      requiredKeywords: body.requiredKeywords ?? [],
+      forbiddenKeywords: body.forbiddenKeywords ?? [],
+      allowDeviceAction: body.allowDeviceAction ?? null,
+      riskLevel: body.riskLevel,
+      notes: body.notes,
+    });
 
-  if (current.cases.some((item) => item.id === testCase.id)) {
-    throw new ApiError(
-      409,
-      "TEST_CASE_DUPLICATED",
-      `Duplicate test case id: ${testCase.id}`,
-    );
-  }
-
-  const updated = buildTestSetRecord({
-    ...current,
-    updatedAt: new Date().toISOString(),
-    cases: [...current.cases, testCase],
+    if (current.cases.some((item) => item.id === testCase.id)) {
+      throw new ApiError(409, "TEST_CASE_DUPLICATED", `Duplicate test case id: ${testCase.id}`);
+    }
+    return buildTestSetRecord({
+      ...current,
+      updatedAt: new Date().toISOString(),
+      cases: [...current.cases, testCase],
+    });
   });
-  const nextTestSets = [...managedTestSets];
-  nextTestSets[index] = updated;
-  await labDataRepository.saveTestSets(nextTestSets);
-  return updated;
 }
 
 export async function updateTestCaseInSet(
@@ -205,81 +173,44 @@ export async function updateTestCaseInSet(
   requestBody: unknown,
 ): Promise<TestSet> {
   const body = UpdateTestCaseRequestSchema.parse(requestBody);
-  const { managedTestSets, index } = await getWritableManagedTestSet(testSetId);
-  const current = managedTestSets[index];
-  const caseIndex = current.cases.findIndex((item) => item.id === testCaseId);
-  if (caseIndex < 0) {
-    throw new ApiError(
-      404,
-      "TEST_CASE_NOT_FOUND",
-      `Unknown test case: ${testCaseId}`,
-    );
-  }
+  return updateManagedTestSet(testSetId, (current) => {
+    const caseIndex = current.cases.findIndex((item) => item.id === testCaseId);
+    if (caseIndex < 0) {
+      throw new ApiError(404, "TEST_CASE_NOT_FOUND", `Unknown test case: ${testCaseId}`);
+    }
 
-  const currentCase = current.cases[caseIndex];
-  const updatedCase = normalizeTestCase({
-    ...currentCase,
-    category: body.category ?? currentCase.category,
-    inputText: body.inputText ?? currentCase.inputText,
-    expectedIntent:
-      body.expectedIntent === undefined
-        ? currentCase.expectedIntent
-        : body.expectedIntent,
-    expectedResultType:
-      body.expectedResultType === undefined
-        ? currentCase.expectedResultType
-        : body.expectedResultType,
-    expectedSlots: body.expectedSlots ?? currentCase.expectedSlots,
-    expectedSafetyDecision:
-      body.expectedSafetyDecision === undefined
-        ? currentCase.expectedSafetyDecision
-        : body.expectedSafetyDecision,
-    requiredKeywords: body.requiredKeywords ?? currentCase.requiredKeywords,
-    forbiddenKeywords: body.forbiddenKeywords ?? currentCase.forbiddenKeywords,
-    allowDeviceAction:
-      body.allowDeviceAction === undefined
-        ? currentCase.allowDeviceAction
-        : body.allowDeviceAction,
-    riskLevel: body.riskLevel ?? currentCase.riskLevel,
-    notes: body.notes === undefined ? currentCase.notes : body.notes,
+    const currentCase = current.cases[caseIndex];
+    const updatedCase = normalizeTestCase({
+      ...currentCase,
+      category: body.category ?? currentCase.category,
+      inputText: body.inputText ?? currentCase.inputText,
+      expectedIntent: body.expectedIntent === undefined ? currentCase.expectedIntent : body.expectedIntent,
+      expectedResultType: body.expectedResultType === undefined ? currentCase.expectedResultType : body.expectedResultType,
+      expectedSlots: body.expectedSlots ?? currentCase.expectedSlots,
+      expectedSafetyDecision: body.expectedSafetyDecision === undefined ? currentCase.expectedSafetyDecision : body.expectedSafetyDecision,
+      requiredKeywords: body.requiredKeywords ?? currentCase.requiredKeywords,
+      forbiddenKeywords: body.forbiddenKeywords ?? currentCase.forbiddenKeywords,
+      allowDeviceAction: body.allowDeviceAction === undefined ? currentCase.allowDeviceAction : body.allowDeviceAction,
+      riskLevel: body.riskLevel ?? currentCase.riskLevel,
+      notes: body.notes === undefined ? currentCase.notes : body.notes,
+    });
+    const nextCases = [...current.cases];
+    nextCases[caseIndex] = updatedCase;
+    return buildTestSetRecord({ ...current, updatedAt: new Date().toISOString(), cases: nextCases });
   });
-  const nextCases = [...current.cases];
-  nextCases[caseIndex] = updatedCase;
-  const updated = buildTestSetRecord({
-    ...current,
-    updatedAt: new Date().toISOString(),
-    cases: nextCases,
-  });
-  const nextTestSets = [...managedTestSets];
-  nextTestSets[index] = updated;
-  await labDataRepository.saveTestSets(nextTestSets);
-  return updated;
 }
 
 export async function deleteTestCaseFromSet(
   testSetId: string,
   testCaseId: string,
 ): Promise<TestSet> {
-  const { managedTestSets, index } = await getWritableManagedTestSet(testSetId);
-  const current = managedTestSets[index];
-  const nextCases = current.cases.filter((item) => item.id !== testCaseId);
-  if (nextCases.length === current.cases.length) {
-    throw new ApiError(
-      404,
-      "TEST_CASE_NOT_FOUND",
-      `Unknown test case: ${testCaseId}`,
-    );
-  }
-
-  const updated = buildTestSetRecord({
-    ...current,
-    updatedAt: new Date().toISOString(),
-    cases: nextCases,
+  return updateManagedTestSet(testSetId, (current) => {
+    const nextCases = current.cases.filter((item) => item.id !== testCaseId);
+    if (nextCases.length === current.cases.length) {
+      throw new ApiError(404, "TEST_CASE_NOT_FOUND", `Unknown test case: ${testCaseId}`);
+    }
+    return buildTestSetRecord({ ...current, updatedAt: new Date().toISOString(), cases: nextCases });
   });
-  const nextTestSets = [...managedTestSets];
-  nextTestSets[index] = updated;
-  await labDataRepository.saveTestSets(nextTestSets);
-  return updated;
 }
 
 async function listManagedTestSetSummaries(): Promise<TestSetSummary[]> {
@@ -287,10 +218,7 @@ async function listManagedTestSetSummaries(): Promise<TestSetSummary[]> {
   return managedTestSets.map(toSummary);
 }
 
-async function getWritableManagedTestSet(testSetId: string): Promise<{
-  managedTestSets: TestSet[];
-  index: number;
-}> {
+function writableManagedTestSetIndex(managedTestSets: TestSet[], testSetId: string): number {
   if (testSetId === STANDARD_TEST_SET_ID || testSetId === "standard") {
     throw new ApiError(
       422,
@@ -299,7 +227,6 @@ async function getWritableManagedTestSet(testSetId: string): Promise<{
     );
   }
 
-  const managedTestSets = await labDataRepository.listTestSets();
   const index = managedTestSets.findIndex((item) => item.id === testSetId);
   if (index < 0) {
     throw new ApiError(
@@ -309,7 +236,17 @@ async function getWritableManagedTestSet(testSetId: string): Promise<{
     );
   }
 
-  return { managedTestSets, index };
+  return index;
+}
+
+function updateManagedTestSet(testSetId: string, update: (current: TestSet) => TestSet): Promise<TestSet> {
+  return labDataRepository.updateTestSets((managedTestSets) => {
+    const index = writableManagedTestSetIndex(managedTestSets, testSetId);
+    const updated = update(managedTestSets[index]);
+    const nextTestSets = [...managedTestSets];
+    nextTestSets[index] = updated;
+    return { value: nextTestSets, result: updated };
+  });
 }
 
 async function buildStandardTestSetSummary(): Promise<TestSetSummary> {
